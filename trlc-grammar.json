@@ -1,0 +1,57 @@
+{
+    "scopeName": "source.trlc",
+    "fileTypes": ["rsl", "check", "trlc"],
+    "patterns": [
+	{
+            "match": "//.*",
+            "name": "comment.line.double-slash"
+        },
+	{
+	    "begin": "/\\*",
+	    "end": "\\*/",
+	    "name": "comment.block"
+	},
+	{
+	    "begin": "\"\"\"",
+	    "end": "\"\"\"",
+	    "name": "string.quoted.triple"
+	},
+	{
+	    "begin": "'''",
+	    "end": "'''",
+	    "name": "string.quoted.triple"
+	},
+	{
+	    "match": "\"([^\"\\n]|(\\\"))*\"",
+	    "name": "string.quoted.double"
+	},
+	{
+	    "name" : "keyword.control.trlc",
+	    "match" : "\\b(checks|else|elsif|enum|error|extends|fatal|if|import|package|section|separator|then|tuple|type|warning)\\b"
+	},
+	{
+	    "name" : "keyword.operator.trlc",
+	    "match" : "\\b(abs|and|exists|false|forall|implies|in|not|null|or|true|xor)\\b"
+	},
+	{
+	    "name" : "storage.modifier",
+	    "match" : "abstract|final|freeze|optional"
+	},
+	{
+	    "name" : "entity.name.type",
+	    "match" : "Boolean|Integer|Decimal|String|Markup_String"
+	},
+	{
+	    "name" : "entity.name.function",
+	    "match" : "len|startswith|endswith|matches"
+	},
+	{
+	    "name" : "constant.numeric",
+	    "match" : "(0[xb])?[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
+	},
+	{
+	    "name" : "constant.numeric",
+	    "match" : "[0-9]+(_[0-9]+)*\\.[0-9]+(_[0-9]+)*"
+	}
+    ]
+}

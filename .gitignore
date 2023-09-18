@@ -1,0 +1,9 @@
+# Node.js and TS
+node_modules
+client/out
+
+# Artefacts
+*.vsix
+
+# EMACS
+*~

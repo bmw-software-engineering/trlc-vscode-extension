@@ -1,0 +1,82 @@
+{
+    "name": "trlc-vscode-extension",
+    "version": "3.0.0",
+    "publisher": "BMW Group",
+    "author": "BMW Group",
+    "engines": {
+        "vscode": "^1.62.0"
+    },
+    "repository": "https://github.com/bmw-software-engineering/trlc-vscode-extension",
+    "icon": "assets/BMW_White-Colour_RGB.png",
+    "license": "GPL-3.0-or-later",
+    "displayName": "TRLC VSCode Extension",
+    "description": "VSCode integration for the Python TRLC reference implementation",
+    "categories": [
+        "Programming Languages",
+        "Linters"
+    ],
+    "keywords": [
+        "trlc",
+        "requirements",
+        "plain text",
+        "bmw"
+    ],
+    "devDependencies": {
+        "@types/node": "^16.11.6",
+        "@types/vscode": "^1.62.0",
+        "@typescript-eslint/eslint-plugin": "^5.3.0",
+        "@typescript-eslint/parser": "^5.3.0",
+        "eslint": "^8.2.0",
+        "typescript": "^4.4.4"
+    },
+    "dependencies": {
+        "@vscode/vsce": "^2.21.0",
+        "vscode-languageclient": "^7.0.0"
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -b",
+        "watch": "tsc -b -w"
+    },
+    "main": "client/out/extension",
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "TRLC",
+                "extensions": [
+                    ".rsl",
+                    ".check",
+                    ".trlc"
+                ],
+                "configuration": "./trlc-language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "TRLC",
+                "scopeName": "source.trlc",
+                "path": "./trlc-grammar.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "progress",
+                "title": "Start the progress"
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "ttrlc-vscode-extension server configuration",
+            "properties": {
+                "jsonServer.exampleConfiguration": {
+                    "scope": "resource",
+                    "type": "string",
+                    "default": "You can override this message."
+                }
+            }
+        }
+    }
+}
