@@ -1,5 +1,8 @@
 # TRLC visual studio code extension
 
+**Note: This extension is work in progress and is not yet fit for
+general use.**
+
 `trlc-vscode` is a visual studio code extension that provides editing
 features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
