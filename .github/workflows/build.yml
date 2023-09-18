@@ -21,9 +21,10 @@ jobs:
           node-version: 18
       - name: "Install dependencies"
         run: |
-          npm install @vscode/vsce
+          npm install -g @vscode/vsce
       - name: "Build package"
         run: |
+          npm install @vscode/vsce
           vsce package
       - name: "Archive package"
         uses: actions/upload-artifact@v3
