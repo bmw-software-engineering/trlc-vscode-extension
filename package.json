@@ -77,6 +77,9 @@
                     "default": "You can override this message."
                 }
             }
-        }
+        },
+        "extensionDependencies": [
+            "ms-python.python"
+        ]
     }
 }
