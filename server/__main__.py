@@ -23,10 +23,16 @@
 
 import argparse
 import logging
-
-from .server import trlc_server
+import sys
 
 logging.basicConfig(filename="pygls.log", level=logging.DEBUG, filemode="w")
+
+if len(sys.path) <= 1:
+    sys.path.append("python-deps")
+else:
+    sys.path.insert(1, "python-deps")
+
+from .server import trlc_server
 
 
 def add_arguments(parser):
