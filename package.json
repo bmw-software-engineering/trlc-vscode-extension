@@ -1,7 +1,7 @@
 {
     "name": "trlc-vscode-extension",
     "version": "3.0.0",
-    "publisher": "BMW Group",
+    "publisher": "bmw-group",
     "author": "BMW Group",
     "engines": {
         "vscode": "^1.62.0"
