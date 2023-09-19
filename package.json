@@ -21,6 +21,9 @@
         "plain text",
         "bmw"
     ],
+    "extensionDependencies": [
+        "ms-python.python"
+    ],
     "devDependencies": {
         "@types/node": "^16.11.6",
         "@types/vscode": "^1.62.0",
@@ -77,9 +80,6 @@
                     "default": "You can override this message."
                 }
             }
-        },
-        "extensionDependencies": [
-            "ms-python.python"
-        ]
+        }
     }
 }
