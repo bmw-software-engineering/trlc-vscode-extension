@@ -10,23 +10,22 @@ for TRLC files. Get more information about
 
 ## Dependencies
 
-1. Install [Python](https://www.python.org/downloads/).
-2. Use the package manager [pip](https://pip.pypa.io/en/stable/) to
-   install pygls.
-
-   ```bash
-   pip install pygls
-   ```
-
-3. Download and Install [VSCode](https://code.visualstudio.com/download).
-4. Download the python extension for VS Code.
-5. Create `.vscode/settings.json` file and set
+1. Install [Python](https://www.python.org/downloads/) >= 3.8.
+2. Download and Install [VSCode](https://code.visualstudio.com/download).
+3. Create `.vscode/settings.json` file and set
    `python.defaultInterpreterPath` to point to your python
-   installation where `pygls` is installed.
+   installation.
 
 ## Build from source
 
-1. Make sure you have `Node.js` installed. You will likely need to
+1. Use the package manager [pip](https://pip.pypa.io/en/stable/) to
+   install required python packages.
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Make sure you have `Node.js` installed. You will likely need to
    upgrade from the system installed one on Debian/Ubuntu (as root):
 
    ```bash
@@ -40,7 +39,7 @@ for TRLC files. Get more information about
    npm install -g @vscode/vsce
    ```
 
-2. Use `vsce` to package the extension:
+3. Use `vsce` to package the extension:
 
    ```bash
    cd ./trlc-new-vscode-plugin
@@ -51,8 +50,8 @@ for TRLC files. Get more information about
 
 1. Open the source code in VS Code.
 2. Run `npm install` in this folder.
-2. Open debug view (ctrl + shift + D).
-3. Select Server + Client and press F5.
+3. Open debug view (ctrl + shift + D).
+4. Select Server + Client and press F5.
 
 
 ## Usage
