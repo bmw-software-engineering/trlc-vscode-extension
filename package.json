@@ -2,15 +2,24 @@
     "name": "trlc-vscode-extension",
     "version": "3.0.0",
     "publisher": "bmw-group",
-    "author": "BMW Group",
+    "author": {
+        "name": "BMW Group"
+    },
     "engines": {
         "vscode": "^1.62.0"
     },
-    "repository": "https://github.com/bmw-software-engineering/trlc-vscode-extension",
     "icon": "assets/BMW_White-Colour_RGB.png",
     "license": "GPL-3.0-or-later",
     "displayName": "TRLC VSCode Extension",
     "description": "VSCode integration for the Python TRLC reference implementation",
+    "homepage": "https://github.com/bmw-software-engineering/trlc-vscode-extension",
+    "bugs": {
+        "url": "https://github.com/bmw-software-engineering/trlc-vscode-extension/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/bmw-software-engineering/trlc-vscode-extension.git"
+    },
     "categories": [
         "Programming Languages",
         "Linters"
