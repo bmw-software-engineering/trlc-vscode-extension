@@ -91,16 +91,18 @@ def _validate(ls, params):
     vsm.process()
     ls.show_message_log("Files processed...")
 
-    uri = params.text_document.uri
-    ls.publish_diagnostics(uri, vmh.diagnostics[uri])
+    if ls.workspace.documents:
+        for uri in ls.workspace.documents:
+            ls.publish_diagnostics(uri, [])
+
+    for uri in vmh.diagnostics:
+        ls.publish_diagnostics(uri, vmh.diagnostics[uri])
     ls.show_message_log("Diagnostics published")
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls, params: DidChangeTextDocumentParams):
     """Text document did change notification."""
     ls.show_message("Text Document did change!")
-    uri = params.text_document.uri
-    ls.publish_diagnostics(uri, [])
 
     fh.update_files(ls, params)
 
