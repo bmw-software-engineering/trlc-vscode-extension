@@ -51,7 +51,11 @@ from lsprotocol.types import (
     WorkspaceConfigurationParams,
 )
 from pygls.server import LanguageServer
-from .trlc_utils import Vscode_Message_Handler, Vscode_Source_Manager, File_Handler
+from .trlc_utils import (
+    Vscode_Message_Handler,
+    Vscode_Source_Manager,
+    File_Handler
+)
 
 
 COUNT_DOWN_START_IN_SECONDS = 10

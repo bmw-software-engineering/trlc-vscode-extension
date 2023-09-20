@@ -20,9 +20,18 @@
 
 import os
 import urllib.parse
-from trlc.errors import Message_Handler, TRLC_Error
+from trlc.errors import Message_Handler, TRLC_Error, Kind
 from trlc.trlc import Source_Manager
-from lsprotocol.types import Diagnostic, Position, Range
+from lsprotocol.types import Diagnostic, Position, Range, DiagnosticSeverity
+
+
+kind_to_severity_mapping = {
+    Kind.SYS_ERROR: DiagnosticSeverity.Error,
+    Kind.SYS_CHECK: DiagnosticSeverity.Information,
+    Kind.SYS_WARNING: DiagnosticSeverity.Warning,
+    Kind.USER_ERROR: DiagnosticSeverity.Error,
+    Kind.USER_WARNING: DiagnosticSeverity.Warning
+}
 
 class Vscode_Message_Handler(Message_Handler):
     """Reimplementation of TRLC's Message_Handler to emit the diagnostics."""
@@ -31,7 +40,13 @@ class Vscode_Message_Handler(Message_Handler):
         super().__init__()
         self.diagnostics = {}
 
-    def emit(self, location, kind, message, fatal=True, extrainfo=None):
+    def emit(self,
+             location,
+             kind,
+             message,
+             fatal=True,
+             extrainfo=None,
+             category=None):
         end_location = location.get_end_location()
         end_line = end_location.line_no - 1
         end_col = end_location.col_no
@@ -39,13 +54,16 @@ class Vscode_Message_Handler(Message_Handler):
         start_col = location.col_no - 1
         end_range = Position(line=end_line, character=end_col)
         start_range = Position(line=start_line, character=start_col)
-        msg = message
+        msg = (message + (f"\n{extrainfo}" if extrainfo is not None else ""))
+
         url = urllib.parse.quote(location.file_name.replace('\\', '/'))
         uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
 
-        d = Diagnostic(message=msg,
-                       range=Range(start=start_range, end=end_range),
-                       severity=kind)
+        d = Diagnostic(range=Range(start=start_range, end=end_range),
+                       message=msg,
+                       severity=kind_to_severity_mapping.get(kind),
+                       code=category
+                       )
 
         if uri in self.diagnostics:
             self.diagnostics[uri].append(d)
@@ -70,7 +88,8 @@ class File_Handler():
         del self.files[uri]
 
 class Vscode_Source_Manager(Source_Manager):
-    """Reimplementation of TRLC's Source_Manager to read from vscode's workspace."""
+    """Reimplementation of TRLC's Source_Manager to read from vscode's
+    workspace."""
 
     def __init__(self, mh, fh):
         super().__init__(mh)
@@ -97,18 +116,12 @@ class Vscode_Source_Manager(Source_Manager):
                                                       ".check",
                                                       ".trlc"):
                     file_path = os.path.join(path, file_name)
-                    ls.show_message_log('Pfad von trlc zur Datei: ' + path) # remove
-                    ls.show_message_log('Dateiname von trlc: ' + file_path) # remove
                     url = urllib.parse.quote(file_path.replace('\\', '/'))
-                    ls.show_message_log('Vscode_Source_Manager url: ' + url) # remove
-                    uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
-                    ls.show_message_log('Vscode_Source_Manager uri: ' + uri) # remove
+                    uri = urllib.parse.urlunparse(('file', '', url,
+                                                   '', '', ''))
                     if uri in self.fh.files:
-                        ls.show_message_log("Fileinhalt aus Workspace lesen: " + uri) # remove
                         file_content = self.fh.files[uri]
-                        ls.show_message_log("Fileinhalt aus Workspace lesen: " + file_content) #remove
                     else:
-                        ls.show_message_log("Fileinhalt von Disc lesen: " + uri) # remove
                         file_content = None
                     ok &= self.register_file(file_path, file_content)
         return ok
