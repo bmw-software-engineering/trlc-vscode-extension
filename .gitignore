@@ -1,9 +1,17 @@
+# Artefacts
+*.vsix
+*.log
+
+# EMACS
+*~
+
+# macOS
+.DS_Store
+
 # Node.js and TS
 node_modules
 client/out
 
-# Artefacts
-*.vsix
-
-# EMACS
-*~
+# Python
+__pycache__/
+*.py[cod]
