@@ -48,22 +48,20 @@ class Vscode_Message_Handler(Message_Handler):
              extrainfo=None,
              category=None):
         end_location = location.get_end_location()
-        end_line = end_location.line_no - 1
-        end_col = end_location.col_no
-        start_line = location.line_no - 1
-        start_col = location.col_no - 1
+        end_line = (0 if end_location.line_no is None
+                    else end_location.line_no - 1)
+        end_col = 1 if end_location.col_no is None else end_location.col_no
+        start_line = 0 if location.line_no is None else location.line_no - 1
+        start_col = 0 if location.col_no is None else location.col_no - 1
         end_range = Position(line=end_line, character=end_col)
         start_range = Position(line=start_line, character=start_col)
         msg = (message + (f"\n{extrainfo}" if extrainfo is not None else ""))
-
         url = urllib.parse.quote(location.file_name.replace('\\', '/'))
         uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
-
         d = Diagnostic(range=Range(start=start_range, end=end_range),
                        message=msg,
                        severity=kind_to_severity_mapping.get(kind),
-                       code=category
-                       )
+                       code=category)
 
         if uri in self.diagnostics:
             self.diagnostics[uri].append(d)
