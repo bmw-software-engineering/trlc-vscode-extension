@@ -35,19 +35,27 @@
 	},
 	{
 	    "name" : "storage.modifier",
-	    "match" : "abstract|final|freeze|optional"
+	    "match" : "\\b(abstract|final|freeze|optional)\\b"
 	},
 	{
 	    "name" : "entity.name.type",
-	    "match" : "Boolean|Integer|Decimal|String|Markup_String"
+	    "match" : "\\b(Boolean|Integer|Decimal|String|Markup_String)\\b"
 	},
 	{
 	    "name" : "entity.name.function",
-	    "match" : "len|startswith|endswith|matches"
+	    "match" : "\\b(len|startswith|endswith|matches)\\b"
 	},
 	{
 	    "name" : "constant.numeric",
-	    "match" : "(0[xb])?[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
+	    "match" : "0x[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
+	},
+	{
+	    "name" : "constant.numeric",
+	    "match" : "[0-9]+(_[0-9]+)*"
+	},
+	{
+	    "name" : "constant.numeric",
+	    "match" : "0b[01]+(_[01]+)*"
 	},
 	{
 	    "name" : "constant.numeric",
