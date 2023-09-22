@@ -41,13 +41,16 @@ jobs:
           tag: "cvc5-1.0.8"
           fileName: "cvc5-Win64.exe"
           out-file-path: "bin"
-      - name: Fetch CVC5 (Windows)
+      - name: Fetch CVC5 (Linux)
         uses: robinraju/release-downloader@v1.8
         with:
           repository: "cvc5/cvc5"
           tag: "cvc5-1.0.8"
           fileName: "cvc5-Linux"
           out-file-path: "bin"
+      - name: Set permissions
+        run: |
+          chmod +x bin/*
       - name: "Build package"
         run: |
           python -m pip install --target python-deps --isolated -I --platform any --only-binary :all: -r requirements.txt
