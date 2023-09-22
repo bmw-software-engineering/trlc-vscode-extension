@@ -18,6 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 
+import sys
 import os
 import urllib.parse
 from trlc.errors import Message_Handler, TRLC_Error, Kind
@@ -32,6 +33,20 @@ kind_to_severity_mapping = {
     Kind.USER_ERROR: DiagnosticSeverity.Error,
     Kind.USER_WARNING: DiagnosticSeverity.Warning
 }
+
+if sys.platform.startswith("win32"):
+    USE_VERIFY = True
+    CVC5_BINARY = "bin/cvc5-Win64.exe"
+elif sys.platform.startswith("darwin"):
+    USE_VERIFY = True
+    CVC5_BINARY = "bin/cvc5-macOS"
+elif sys.platform.startswith("linux"):
+    USE_VERIFY = True
+    CVC5_BINARY = None
+else:
+    USE_VERIFY = False
+    CVC5_BINARY = None
+
 
 class Vscode_Message_Handler(Message_Handler):
     """Reimplementation of TRLC's Message_Handler to emit the diagnostics."""
@@ -90,7 +105,9 @@ class Vscode_Source_Manager(Source_Manager):
     workspace."""
 
     def __init__(self, mh, fh):
-        super().__init__(mh)
+        super().__init__(mh          = mh,
+                         verify_mode = USE_VERIFY,
+                         cvc5_binary = CVC5_BINARY)
         self.fh = fh
 
     def register_workspace(self, ls):

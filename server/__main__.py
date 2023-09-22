@@ -32,6 +32,12 @@ if len(sys.path) <= 1:
 else:
     sys.path.insert(1, "python-deps")
 
+if sys.platform.startswith("linux"):
+    if len(sys.path) <= 2:
+        sys.path.append("python-deps-linux")
+    else:
+        sys.path.insert(2, "python-deps-linux")
+
 from .server import trlc_server
 
 
