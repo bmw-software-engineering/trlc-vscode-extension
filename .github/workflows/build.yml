@@ -33,14 +33,14 @@ jobs:
           repository: "cvc5/cvc5"
           tag: "cvc5-1.0.8"
           fileName: "cvc5-macOS"
-          out-file-path: "bin/cvc5-macOS"
+          out-file-path: "bin"
       - name: Fetch CVC5 (Windows)
         uses: robinraju/release-downloader@v1.8
         with:
           repository: "cvc5/cvc5"
           tag: "cvc5-1.0.8"
           fileName: "cvc5-Win64.exe"
-          out-file-path: "bin/cvc5-Win64.exe"
+          out-file-path: "bin"
       - name: Fetch CVC5 (Linux)
         run: |
           python -m pip install --target python-deps-linux --isolated -I cvc5==1.0.8
