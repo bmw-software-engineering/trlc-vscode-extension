@@ -34,17 +34,26 @@ kind_to_severity_mapping = {
     Kind.USER_WARNING: DiagnosticSeverity.Warning
 }
 
-if sys.platform.startswith("win32"):
-    USE_VERIFY = True
+try:
+    import cvc5
+    HAS_CVC5_API = True
+except ImportError:
+    HAS_CVC5_API = False
+
+if HAS_CVC5_API:
+    USE_VERIFY  = True
+    CVC5_BINARY = None
+elif sys.platform.startswith("win32"):
+    USE_VERIFY  = True
     CVC5_BINARY = "bin/cvc5-Win64.exe"
 elif sys.platform.startswith("darwin"):
-    USE_VERIFY = True
+    USE_VERIFY  = True
     CVC5_BINARY = "bin/cvc5-macOS"
 elif sys.platform.startswith("linux"):
-    USE_VERIFY = True
+    USE_VERIFY  = True
     CVC5_BINARY = "bin/cvc5-Linux"
 else:
-    USE_VERIFY = False
+    USE_VERIFY  = False
     CVC5_BINARY = None
 
 
