@@ -42,7 +42,7 @@ elif sys.platform.startswith("darwin"):
     CVC5_BINARY = "bin/cvc5-macOS"
 elif sys.platform.startswith("linux"):
     USE_VERIFY = True
-    CVC5_BINARY = None
+    CVC5_BINARY = "bin/cvc5-Linux"
 else:
     USE_VERIFY = False
     CVC5_BINARY = None
