@@ -22,6 +22,7 @@
 # the Apache License, Version 2.0.
 
 import asyncio
+import os
 import re
 import time
 import urllib.parse
@@ -123,6 +124,8 @@ class TrlcLanguageServer(LanguageServer):
         for folder_uri in self.workspace.folders.keys():
             parsed_uri = urllib.parse.urlparse(folder_uri)
             folder_path = urllib.parse.unquote(parsed_uri.path)
+            if os.name == 'nt':
+                folder_path = folder_path[1:]
             vsm.register_workspace(folder_path)
 
         vsm.process()
