@@ -116,9 +116,7 @@ class Vscode_Source_Manager(Source_Manager):
                          cvc5_binary = CVC5_BINARY)
         self.fh = fh
 
-    def register_workspace(self, ls):
-        dir_name = ls.workspace.root_path
-
+    def register_workspace(self, dir_name):
         ok = True
         for path, dirs, files in os.walk(dir_name):
             dirs.sort()

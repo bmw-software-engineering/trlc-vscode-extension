@@ -24,6 +24,7 @@
 import asyncio
 import re
 import time
+import urllib.parse
 import uuid
 import threading
 import logging
@@ -34,6 +35,7 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_DID_OPEN,
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+    WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
 )
 from lsprotocol.types import (
     ConfigurationItem,
@@ -52,6 +54,7 @@ from lsprotocol.types import (
     WorkDoneProgressEnd,
     WorkDoneProgressReport,
     WorkspaceConfigurationParams,
+    DidChangeWorkspaceFoldersParams,
 )
 from pygls.server import LanguageServer
 from .trlc_utils import (
@@ -79,6 +82,8 @@ class TrlcValidator(threading.Thread):
                     action, uri, content = self.server.queue.pop()
                     if action == "change":
                         self.server.fh.update_files(uri, content)
+                    elif action == "reparse":
+                        pass
                     else:
                         self.server.fh.delete_files(uri)
             self.server.validate()
@@ -104,7 +109,7 @@ class TrlcLanguageServer(LanguageServer):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.fh = File_Handler()
+        self.fh            = File_Handler()
         self.queue_lock    = threading.Lock()
         self.queue         = []
         self.trigger_parse = threading.Event()
@@ -112,36 +117,34 @@ class TrlcLanguageServer(LanguageServer):
         self.validator.start()
 
     def validate(self):
-        self.show_message_log("Start validating trlc files...")
-
         vmh = Vscode_Message_Handler()
-        self.show_message_log("Message Handler instantiated...")
-
         vsm = Vscode_Source_Manager(vmh, self.fh)
-        self.show_message_log("Source Manager instantiated...")
 
-        vsm.register_workspace(self)
-        self.show_message_log("Directory registered...")
+        for folder_uri in self.workspace.folders.keys():
+            parsed_uri = urllib.parse.urlparse(folder_uri)
+            folder_path = urllib.parse.unquote(parsed_uri.path)
+            vsm.register_workspace(folder_path)
 
         vsm.process()
-        self.show_message_log("Files processed...")
-
         if self.workspace.documents:
             for uri in self.workspace.documents:
                 self.publish_diagnostics(uri, [])
-
         for uri in vmh.diagnostics:
             self.publish_diagnostics(uri, vmh.diagnostics[uri])
         self.show_message_log("Diagnostics published")
 
-    def queue_event(self, kind, uri, content=None ):
+    def queue_event(self, kind, uri=None, content=None ):
         with self.queue_lock:
             self.queue.insert(0, (kind, uri, content))
             self.trigger_parse.set()
 
-
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 
+@trlc_server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)
+def on_workspace_folders_change(ls, params: DidChangeWorkspaceFoldersParams):
+    """Workspace folders did change notification."""
+    ls.show_message("Workspace folder did change!")
+    ls.queue_event("reparse")
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls, params: DidChangeTextDocumentParams):
@@ -154,7 +157,7 @@ def did_change(ls, params: DidChangeTextDocumentParams):
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CLOSE)
-def did_close(ls: TrlcLanguageServer, params: DidCloseTextDocumentParams):
+def did_close(ls, params: DidCloseTextDocumentParams):
     """Text document did close notification."""
     ls.show_message("Text Document Did Close")
     uri = params.text_document.uri
