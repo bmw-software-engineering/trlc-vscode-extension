@@ -35,6 +35,7 @@ kind_to_severity_mapping = {
 }
 
 try:
+    # pylint: disable=unused-import
     import cvc5
     HAS_CVC5_API = True
 except ImportError:

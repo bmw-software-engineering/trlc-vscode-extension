@@ -21,6 +21,8 @@
 # This server is derived from the pygls example server, licensed under
 # the Apache License, Version 2.0.
 
+# pylint: disable=wrong-import-position
+
 import argparse
 import logging
 import sys
