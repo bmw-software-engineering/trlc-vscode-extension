@@ -25,7 +25,7 @@ import argparse
 import logging
 import sys
 
-logging.basicConfig(filename="pygls.log", level=logging.DEBUG, filemode="w")
+logging.basicConfig(filename="pygls.log", level=logging.WARNING, filemode="w")
 
 if len(sys.path) <= 1:
     sys.path.append("python-deps")
