@@ -99,14 +99,10 @@ class File_Handler():
     def __init__(self):
         self.files = {}
 
-    def update_files(self, ls, params):
-        uri = params.text_document.uri
-        document = ls.workspace.get_document(uri)
-        content = document.source
-        self.files.update({uri:content})
+    def update_files(self, uri, content):
+        self.files[uri] = content
 
-    def delete_files(self, params):
-        uri = params.text_document.uri
+    def delete_files(self, uri):
         del self.files[uri]
 
 class Vscode_Source_Manager(Source_Manager):

@@ -25,6 +25,9 @@ import asyncio
 import re
 import time
 import uuid
+import threading
+import logging
+
 from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_DID_CHANGE,
@@ -57,9 +60,35 @@ from .trlc_utils import (
     File_Handler
 )
 
+logger = logging.getLogger()
 
 COUNT_DOWN_START_IN_SECONDS = 10
 COUNT_DOWN_SLEEP_IN_SECONDS = 1
+
+class TrlcValidator(threading.Thread):
+    def __init__(self, server):
+        super().__init__(name="TRLC Parser Thread")
+        self.server = server
+
+    def validate(self):
+        while True:
+            with self.server.queue_lock:
+                if not self.server.queue:
+                    return
+                while self.server.queue:
+                    action, uri, content = self.server.queue.pop()
+                    if action == "change":
+                        self.server.fh.update_files(uri, content)
+                    else:
+                        self.server.fh.delete_files(uri)
+            self.server.validate()
+
+    def run(self):
+        while True:
+            self.server.trigger_parse.wait()
+            self.server.trigger_parse.clear()
+            self.validate()
+
 
 class TrlcLanguageServer(LanguageServer):
     CMD_COUNT_DOWN_BLOCKING = "countDownBlocking"
@@ -75,58 +104,71 @@ class TrlcLanguageServer(LanguageServer):
 
     def __init__(self, *args):
         super().__init__(*args)
+        self.fh = File_Handler()
+        self.queue_lock    = threading.Lock()
+        self.queue         = []
+        self.trigger_parse = threading.Event()
+        self.validator     = TrlcValidator(self)
+        self.validator.start()
+
+    def validate(self):
+        self.show_message_log("Start validating trlc files...")
+
+        vmh = Vscode_Message_Handler()
+        self.show_message_log("Message Handler instantiated...")
+
+        vsm = Vscode_Source_Manager(vmh, self.fh)
+        self.show_message_log("Source Manager instantiated...")
+
+        vsm.register_workspace(self)
+        self.show_message_log("Directory registered...")
+
+        vsm.process()
+        self.show_message_log("Files processed...")
+
+        if self.workspace.documents:
+            for uri in self.workspace.documents:
+                self.publish_diagnostics(uri, [])
+
+        for uri in vmh.diagnostics:
+            self.publish_diagnostics(uri, vmh.diagnostics[uri])
+        self.show_message_log("Diagnostics published")
+
+    def queue_event(self, kind, uri, content=None ):
+        with self.queue_lock:
+            self.queue.insert(0, (kind, uri, content))
+            self.trigger_parse.set()
 
 
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
-fh = File_Handler()
 
-def _validate(ls, params):
-    ls.show_message_log("Start validating trlc files...")
-
-    vmh = Vscode_Message_Handler()
-    ls.show_message_log("Message Handler instantiated...")
-
-    vsm = Vscode_Source_Manager(vmh, fh)
-    ls.show_message_log("Source Manager instantiated...")
-
-    vsm.register_workspace(ls)
-    ls.show_message_log("Directory registered...")
-
-    vsm.process()
-    ls.show_message_log("Files processed...")
-
-    if ls.workspace.documents:
-        for uri in ls.workspace.documents:
-            ls.publish_diagnostics(uri, [])
-
-    for uri in vmh.diagnostics:
-        ls.publish_diagnostics(uri, vmh.diagnostics[uri])
-    ls.show_message_log("Diagnostics published")
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls, params: DidChangeTextDocumentParams):
     """Text document did change notification."""
     ls.show_message("Text Document did change!")
-
-    fh.update_files(ls, params)
-
-    _validate(ls, params)
+    uri = params.text_document.uri
+    document = ls.workspace.get_document(uri)
+    content = document.source
+    ls.queue_event("change", uri, content)
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CLOSE)
 def did_close(ls: TrlcLanguageServer, params: DidCloseTextDocumentParams):
     """Text document did close notification."""
     ls.show_message("Text Document Did Close")
-
-    fh.delete_files(params)
+    uri = params.text_document.uri
+    ls.queue_event("delete", uri)
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_OPEN)
-async def did_open(ls, params: DidOpenTextDocumentParams):
+def did_open(ls, params: DidOpenTextDocumentParams):
     """Text document did open notification."""
     ls.show_message("Text Document Did Open")
-
-    _validate(ls, params)
+    uri = params.text_document.uri
+    document = ls.workspace.get_document(uri)
+    content = document.source
+    ls.queue_event("change", uri, content)
 
 
 @trlc_server.command(TrlcLanguageServer.CMD_COUNT_DOWN_BLOCKING)
