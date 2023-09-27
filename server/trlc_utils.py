@@ -96,6 +96,7 @@ class Vscode_Message_Handler(Message_Handler):
         if fatal:
             raise TRLC_Error(location, kind, message)
 
+
 class File_Handler():
     def __init__(self):
         self.files = {}
@@ -105,6 +106,7 @@ class File_Handler():
 
     def delete_files(self, uri):
         del self.files[uri]
+
 
 class Vscode_Source_Manager(Source_Manager):
     """Reimplementation of TRLC's Source_Manager to read from vscode's

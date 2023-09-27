@@ -69,6 +69,7 @@ logger = logging.getLogger()
 COUNT_DOWN_START_IN_SECONDS = 10
 COUNT_DOWN_SLEEP_IN_SECONDS = 1
 
+
 class TrlcValidator(threading.Thread):
     def __init__(self, server):
         super().__init__(name="TRLC Parser Thread")
@@ -136,18 +137,21 @@ class TrlcLanguageServer(LanguageServer):
             self.publish_diagnostics(uri, vmh.diagnostics[uri])
         self.show_message_log("Diagnostics published")
 
-    def queue_event(self, kind, uri=None, content=None ):
+    def queue_event(self, kind, uri=None, content=None):
         with self.queue_lock:
             self.queue.insert(0, (kind, uri, content))
             self.trigger_parse.set()
 
+
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
+
 
 @trlc_server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)
 def on_workspace_folders_change(ls, params: DidChangeWorkspaceFoldersParams):
     """Workspace folders did change notification."""
     ls.show_message("Workspace folder did change!")
     ls.queue_event("reparse")
+
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls, params: DidChangeTextDocumentParams):
@@ -204,8 +208,6 @@ async def count_down_10_seconds_non_blocking(ls, *args):
     SemanticTokensLegend(token_types=["operator"], token_modifiers=[]),
 )
 def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
-
-
     TOKENS = re.compile('".*"(?=:)')
 
     uri = params.text_document.uri
@@ -221,7 +223,11 @@ def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
 
         for match in TOKENS.finditer(line):
             start, end = match.span()
-            data += [(lineno - last_line), (start - last_start), (end - start), 0, 0]
+            data += [(lineno - last_line),
+                     (start - last_start),
+                     (end - start),
+                     0,
+                     0]
 
             last_line = lineno
             last_start = start
@@ -236,9 +242,10 @@ async def progress(ls: TrlcLanguageServer, *args):
     # Create
     await ls.progress.create_async(token)
     # Begin
-    ls.progress.begin(
-        token, WorkDoneProgressBegin(title="Indexing", percentage=0, cancellable=True)
-    )
+    ls.progress.begin(token,
+                      WorkDoneProgressBegin(title="Indexing",
+                                            percentage=0,
+                                            cancellable=True))
     # Report
     for i in range(1, 10):
         # Check for cancellation from client
@@ -271,7 +278,8 @@ async def register_completions(ls: TrlcLanguageServer, *args):
         ls.show_message("Successfully registered completions method")
     else:
         ls.show_message(
-            "Error happened during completions registration.", MessageType.Error
+            "Error happened during completions registration.",
+            MessageType.Error
         )
 
 
@@ -283,7 +291,8 @@ async def show_configuration_async(ls: TrlcLanguageServer, *args):
             WorkspaceConfigurationParams(
                 items=[
                     ConfigurationItem(
-                        scope_uri="", section=TrlcLanguageServer.CONFIGURATION_SECTION
+                        scope_uri="",
+                        section=TrlcLanguageServer.CONFIGURATION_SECTION
                     )
                 ]
             )
@@ -291,7 +300,8 @@ async def show_configuration_async(ls: TrlcLanguageServer, *args):
 
         example_config = config[0].get("exampleConfiguration")
 
-        ls.show_message(f"jsonServer.exampleConfiguration value: {example_config}")
+        ls.show_message(f"jsonServer.exampleConfiguration value: "
+                        "{example_config}")
 
     except Exception as e:
         ls.show_message_log(f"Error ocurred: {e}")
@@ -305,7 +315,8 @@ def show_configuration_callback(ls: TrlcLanguageServer, *args):
         try:
             example_config = config[0].get("exampleConfiguration")
 
-            ls.show_message(f"jsonServer.exampleConfiguration value: {example_config}")
+            ls.show_message(f"jsonServer.exampleConfiguration value: "
+                            "{example_config}")
 
         except Exception as e:
             ls.show_message_log(f"Error ocurred: {e}")
@@ -314,7 +325,8 @@ def show_configuration_callback(ls: TrlcLanguageServer, *args):
         WorkspaceConfigurationParams(
             items=[
                 ConfigurationItem(
-                    scope_uri="", section=TrlcLanguageServer.CONFIGURATION_SECTION
+                    scope_uri="",
+                    section=TrlcLanguageServer.CONFIGURATION_SECTION
                 )
             ]
         ),
@@ -331,7 +343,8 @@ def show_configuration_thread(ls: TrlcLanguageServer, *args):
             WorkspaceConfigurationParams(
                 items=[
                     ConfigurationItem(
-                        scope_uri="", section=TrlcLanguageServer.CONFIGURATION_SECTION
+                        scope_uri="",
+                        section=TrlcLanguageServer.CONFIGURATION_SECTION
                     )
                 ]
             )
@@ -339,7 +352,8 @@ def show_configuration_thread(ls: TrlcLanguageServer, *args):
 
         example_config = config[0].get("exampleConfiguration")
 
-        ls.show_message(f"jsonServer.exampleConfiguration value: {example_config}")
+        ls.show_message(f"jsonServer.exampleConfiguration value: "
+                        "{example_config}")
 
     except Exception as e:
         ls.show_message_log(f"Error ocurred: {e}")
@@ -350,7 +364,8 @@ async def unregister_completions(ls: TrlcLanguageServer, *args):
     """Unregister completions method on the client."""
     params = UnregistrationParams(
         unregisterations=[
-            Unregistration(id=str(uuid.uuid4()), method=TEXT_DOCUMENT_COMPLETION)
+            Unregistration(id=str(uuid.uuid4()),
+                           method=TEXT_DOCUMENT_COMPLETION)
         ]
     )
     response = await ls.unregister_capability_async(params)
@@ -358,5 +373,6 @@ async def unregister_completions(ls: TrlcLanguageServer, *args):
         ls.show_message("Successfully unregistered completions method")
     else:
         ls.show_message(
-            "Error happened during completions unregistration.", MessageType.Error
+            "Error happened during completions unregistration.",
+            MessageType.Error
         )
