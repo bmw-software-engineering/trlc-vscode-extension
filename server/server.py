@@ -51,9 +51,6 @@ from lsprotocol.types import (
     SemanticTokensParams,
     Unregistration,
     UnregistrationParams,
-    WorkDoneProgressBegin,
-    WorkDoneProgressEnd,
-    WorkDoneProgressReport,
     WorkspaceConfigurationParams,
     DidChangeWorkspaceFoldersParams,
 )
@@ -100,7 +97,6 @@ class TrlcValidator(threading.Thread):
 class TrlcLanguageServer(LanguageServer):
     CMD_COUNT_DOWN_BLOCKING = "countDownBlocking"
     CMD_COUNT_DOWN_NON_BLOCKING = "countDownNonBlocking"
-    CMD_PROGRESS = "progress"
     CMD_REGISTER_COMPLETIONS = "registerCompletions"
     CMD_SHOW_CONFIGURATION_ASYNC = "showConfigurationAsync"
     CMD_SHOW_CONFIGURATION_CALLBACK = "showConfigurationCallback"
@@ -120,7 +116,7 @@ class TrlcLanguageServer(LanguageServer):
 
     def validate(self):
         vmh = Vscode_Message_Handler()
-        vsm = Vscode_Source_Manager(vmh, self.fh)
+        vsm = Vscode_Source_Manager(vmh, self.fh, self)
 
         for folder_uri in self.workspace.folders.keys():
             parsed_uri = urllib.parse.urlparse(folder_uri)
@@ -233,32 +229,6 @@ def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
             last_start = start
 
     return SemanticTokens(data=data)
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_PROGRESS)
-async def progress(ls: TrlcLanguageServer, *args):
-    """Create and start the progress on the client."""
-    token = str(uuid.uuid4())
-    # Create
-    await ls.progress.create_async(token)
-    # Begin
-    ls.progress.begin(token,
-                      WorkDoneProgressBegin(title="Indexing",
-                                            percentage=0,
-                                            cancellable=True))
-    # Report
-    for i in range(1, 10):
-        # Check for cancellation from client
-        if ls.progress.tokens[token].cancelled():
-            # ... and stop the computation if client cancelled
-            return
-        ls.progress.report(
-            token,
-            WorkDoneProgressReport(message=f"{i * 10}%", percentage=i * 10),
-        )
-        await asyncio.sleep(2)
-    # End
-    ls.progress.end(token, WorkDoneProgressEnd(message="Finished"))
 
 
 @trlc_server.command(TrlcLanguageServer.CMD_REGISTER_COMPLETIONS)

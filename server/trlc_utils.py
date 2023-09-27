@@ -21,9 +21,20 @@
 import sys
 import os
 import urllib.parse
+import uuid
+
 from trlc.errors import Message_Handler, TRLC_Error, Kind
 from trlc.trlc import Source_Manager
-from lsprotocol.types import Diagnostic, Position, Range, DiagnosticSeverity
+
+from lsprotocol.types import (
+    Diagnostic,
+    Position,
+    Range,
+    DiagnosticSeverity,
+    WorkDoneProgressBegin,
+    WorkDoneProgressEnd,
+    WorkDoneProgressReport,
+)
 
 
 kind_to_severity_mapping = {
@@ -112,11 +123,32 @@ class Vscode_Source_Manager(Source_Manager):
     """Reimplementation of TRLC's Source_Manager to read from vscode's
     workspace."""
 
-    def __init__(self, mh, fh):
+    def __init__(self, mh, fh, ls):
         super().__init__(mh          = mh,
                          verify_mode = USE_VERIFY,
                          cvc5_binary = CVC5_BINARY)
-        self.fh = fh
+        self.fh       = fh
+        self.progress = ls.progress
+        self.ptoken   = None
+
+    def callback_parse_begin(self):
+        self.ptoken = str(uuid.uuid4())
+        self.progress.create(self.ptoken)
+        self.progress.begin(self.ptoken,
+                            WorkDoneProgressBegin(title="Parsing",
+                                                  percentage=0,
+                                                  cancellable=False))
+
+    def callback_parse_progress(self, progress):
+        assert isinstance(progress, int)
+        self.progress.report(
+            self.ptoken,
+            WorkDoneProgressReport(message="Parsing (%i%%)" % progress,
+                                   percentage=progress))
+
+    def callback_parse_end(self):
+        self.progress.end(self.ptoken,
+                          WorkDoneProgressEnd(message="Finished"))
 
     def register_workspace(self, dir_name):
         ok = True

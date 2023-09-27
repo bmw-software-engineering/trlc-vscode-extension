@@ -73,12 +73,7 @@
                 "path": "./trlc-grammar.json"
             }
         ],
-        "commands": [
-            {
-                "command": "progress",
-                "title": "Start the progress"
-            }
-        ],
+        "commands": [],
         "configuration": {
             "type": "object",
             "title": "ttrlc-vscode-extension server configuration",
