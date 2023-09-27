@@ -22,7 +22,6 @@
 # the Apache License, Version 2.0.
 
 import asyncio
-import re
 import sys
 import time
 import urllib.parse
@@ -60,6 +59,9 @@ from .trlc_utils import (
     Vscode_Source_Manager,
     File_Handler
 )
+
+import trlc.lexer
+import trlc.errors
 
 logger = logging.getLogger()
 
@@ -205,29 +207,41 @@ async def count_down_10_seconds_non_blocking(ls, *args):
     SemanticTokensLegend(token_types=["operator"], token_modifiers=[]),
 )
 def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
-    TOKENS = re.compile('".*"(?=:)')
-
     uri = params.text_document.uri
     doc = ls.workspace.get_document(uri)
 
-    last_line = 0
-    last_start = 0
+    mh = trlc.errors.Message_Handler()
+    lexer = trlc.lexer.TRLC_Lexer(mh, uri, doc.source)
+    tokens = []
+    while True:
+        try:
+            tok = lexer.token()
+        except trlc.errors.TRLC_Error:
+            tok = None
+        if tok is None:
+            break
+        tokens.append(tok)
 
-    data = []
+    tokens = [token
+              for token in tokens
+              if token.kind == "OPERATOR"]
 
-    for lineno, line in enumerate(doc.lines):
-        last_start = 0
+    # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens
 
-        for match in TOKENS.finditer(line):
-            start, end = match.span()
-            data += [(lineno - last_line),
-                     (start - last_start),
-                     (end - start),
-                     0,
-                     0]
-
-            last_line = lineno
-            last_start = start
+    cur_line = 1
+    cur_col  = 0
+    data     = []
+    for token in tokens:
+        delta_line = token.location.line_no - cur_line
+        cur_line   = token.location.line_no
+        if delta_line > 0:
+            delta_start = token.location.col_no - 1
+            cur_col     = token.location.col_no - 1
+        else:
+            delta_start = token.location.col_no - cur_col
+            cur_col     = token.location.col_no - cur_col
+        length = token.location.start_pos - token.location.end_pos + 1
+        data += [delta_line, delta_start, length, 0, 0]
 
     return SemanticTokens(data=data)
 
