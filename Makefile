@@ -14,3 +14,7 @@ build:
 install: build
 	-code --uninstall-extension "bmw-group.trlc-vscode-extension"
 	code --install-extension trlc-vscode-extension-*.vsix
+
+install-link: install
+	rm -rf ~/.vscode/extensions/bmw-group.trlc-vscode-extension-3.?.?/server
+	ln -s $(shell pwd)/server ~/.vscode/extensions/bmw-group.trlc-vscode-extension-3.?.?/
