@@ -80,18 +80,18 @@ class Vscode_Message_Handler(Message_Handler):
         start_col = 0 if location.col_no is None else location.col_no - 1
         end_range = Position(line=end_line, character=end_col)
         start_range = Position(line=start_line, character=start_col)
-        msg = (message + (f"\n{extrainfo}" if extrainfo is not None else ""))
+        msg = message + (f"\n{extrainfo}" if extrainfo is not None else "")
         url = urllib.parse.quote(location.file_name.replace('\\', '/'))
         uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
-        d = Diagnostic(range=Range(start=start_range, end=end_range),
-                       message=msg,
-                       severity=kind_to_severity_mapping.get(kind),
-                       code=category)
+        diag = Diagnostic(range=Range(start=start_range, end=end_range),
+                          message=msg,
+                          severity=kind_to_severity_mapping.get(kind),
+                          code=category)
 
         if uri in self.diagnostics:
-            self.diagnostics[uri].append(d)
+            self.diagnostics[uri].append(diag)
         else:
-            self.diagnostics[uri] = [d]
+            self.diagnostics[uri] = [diag]
 
         if fatal:
             raise TRLC_Error(location, kind, message)

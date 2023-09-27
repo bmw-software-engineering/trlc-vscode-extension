@@ -133,8 +133,8 @@ class TrlcLanguageServer(LanguageServer):
         if self.workspace.documents:
             for uri in self.workspace.documents:
                 self.publish_diagnostics(uri, [])
-        for uri in vmh.diagnostics:
-            self.publish_diagnostics(uri, vmh.diagnostics[uri])
+        for uri, diagnostics in vmh.diagnostics.items():
+            self.publish_diagnostics(uri, diagnostics)
         self.show_message_log("Diagnostics published")
 
     def queue_event(self, kind, uri=None, content=None):
@@ -147,7 +147,7 @@ trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 
 
 @trlc_server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)
-def on_workspace_folders_change(ls, params: DidChangeWorkspaceFoldersParams):
+def on_workspace_folders_change(ls, _):
     """Workspace folders did change notification."""
     ls.show_message("Workspace folder did change!")
     ls.queue_event("reparse")
