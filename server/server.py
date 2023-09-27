@@ -22,8 +22,8 @@
 # the Apache License, Version 2.0.
 
 import asyncio
-import os
 import re
+import sys
 import time
 import urllib.parse
 import uuid
@@ -121,7 +121,8 @@ class TrlcLanguageServer(LanguageServer):
         for folder_uri in self.workspace.folders.keys():
             parsed_uri = urllib.parse.urlparse(folder_uri)
             folder_path = urllib.parse.unquote(parsed_uri.path)
-            if os.name == 'nt':
+            if (sys.platform.startswith("win32") and
+                folder_path.startswith("/")):
                 folder_path = folder_path[1:]
             vsm.register_workspace(folder_path)
 
