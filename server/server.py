@@ -210,6 +210,9 @@ def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
     uri = params.text_document.uri
     doc = ls.workspace.get_document(uri)
 
+    if not doc.source:
+        return SemanticTokens(data=[])
+
     mh = trlc.errors.Message_Handler()
     lexer = trlc.lexer.TRLC_Lexer(mh, uri, doc.source)
     tokens = []
