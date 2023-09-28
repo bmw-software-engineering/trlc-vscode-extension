@@ -97,14 +97,6 @@ class TrlcValidator(threading.Thread):
 
 
 class TrlcLanguageServer(LanguageServer):
-    CMD_COUNT_DOWN_BLOCKING = "countDownBlocking"
-    CMD_COUNT_DOWN_NON_BLOCKING = "countDownNonBlocking"
-    CMD_REGISTER_COMPLETIONS = "registerCompletions"
-    CMD_SHOW_CONFIGURATION_ASYNC = "showConfigurationAsync"
-    CMD_SHOW_CONFIGURATION_CALLBACK = "showConfigurationCallback"
-    CMD_SHOW_CONFIGURATION_THREAD = "showConfigurationThread"
-    CMD_UNREGISTER_COMPLETIONS = "unregisterCompletions"
-
     CONFIGURATION_SECTION = "trlcServer"
 
     def __init__(self, *args):
@@ -180,28 +172,6 @@ def did_open(ls, params: DidOpenTextDocumentParams):
     ls.queue_event("change", uri, content)
 
 
-@trlc_server.command(TrlcLanguageServer.CMD_COUNT_DOWN_BLOCKING)
-def count_down_10_seconds_blocking(ls, *args):
-    """Starts counting down and showing message synchronously.
-    It will `block` the main thread, which can be tested by trying to show
-    completion items.
-    """
-    for i in range(COUNT_DOWN_START_IN_SECONDS):
-        ls.show_message(f"Counting down... {COUNT_DOWN_START_IN_SECONDS - i}")
-        time.sleep(COUNT_DOWN_SLEEP_IN_SECONDS)
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_COUNT_DOWN_NON_BLOCKING)
-async def count_down_10_seconds_non_blocking(ls, *args):
-    """Starts counting down and showing message asynchronously.
-    It won't `block` the main thread, which can be tested by trying to show
-    completion items.
-    """
-    for i in range(COUNT_DOWN_START_IN_SECONDS):
-        ls.show_message(f"Counting down... {COUNT_DOWN_START_IN_SECONDS - i}")
-        await asyncio.sleep(COUNT_DOWN_SLEEP_IN_SECONDS)
-
-
 @trlc_server.feature(
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
     SemanticTokensLegend(token_types=["operator"], token_modifiers=[]),
@@ -247,120 +217,3 @@ def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
         data += [delta_line, delta_start, length, 0, 0]
 
     return SemanticTokens(data=data)
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_REGISTER_COMPLETIONS)
-async def register_completions(ls: TrlcLanguageServer, *args):
-    """Register completions method on the client."""
-    params = RegistrationParams(
-        registrations=[
-            Registration(
-                id=str(uuid.uuid4()),
-                method=TEXT_DOCUMENT_COMPLETION,
-                register_options={"triggerCharacters": "[':']"},
-            )
-        ]
-    )
-    response = await ls.register_capability_async(params)
-    if response is None:
-        ls.show_message("Successfully registered completions method")
-    else:
-        ls.show_message(
-            "Error happened during completions registration.",
-            MessageType.Error
-        )
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_SHOW_CONFIGURATION_ASYNC)
-async def show_configuration_async(ls: TrlcLanguageServer, *args):
-    """Gets exampleConfiguration from the client settings using coroutines."""
-    try:
-        config = await ls.get_configuration_async(
-            WorkspaceConfigurationParams(
-                items=[
-                    ConfigurationItem(
-                        scope_uri="",
-                        section=TrlcLanguageServer.CONFIGURATION_SECTION
-                    )
-                ]
-            )
-        )
-
-        example_config = config[0].get("exampleConfiguration")
-
-        ls.show_message(f"jsonServer.exampleConfiguration value: "
-                        "{example_config}")
-
-    except Exception as e:
-        ls.show_message_log(f"Error ocurred: {e}")
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_SHOW_CONFIGURATION_CALLBACK)
-def show_configuration_callback(ls: TrlcLanguageServer, *args):
-    """Gets exampleConfiguration from the client settings using callback."""
-
-    def _config_callback(config):
-        try:
-            example_config = config[0].get("exampleConfiguration")
-
-            ls.show_message(f"jsonServer.exampleConfiguration value: "
-                            "{example_config}")
-
-        except Exception as e:
-            ls.show_message_log(f"Error ocurred: {e}")
-
-    ls.get_configuration(
-        WorkspaceConfigurationParams(
-            items=[
-                ConfigurationItem(
-                    scope_uri="",
-                    section=TrlcLanguageServer.CONFIGURATION_SECTION
-                )
-            ]
-        ),
-        _config_callback,
-    )
-
-
-@trlc_server.thread()
-@trlc_server.command(TrlcLanguageServer.CMD_SHOW_CONFIGURATION_THREAD)
-def show_configuration_thread(ls: TrlcLanguageServer, *args):
-    """Gets exampleConfiguration from the client settings using thread pool."""
-    try:
-        config = ls.get_configuration(
-            WorkspaceConfigurationParams(
-                items=[
-                    ConfigurationItem(
-                        scope_uri="",
-                        section=TrlcLanguageServer.CONFIGURATION_SECTION
-                    )
-                ]
-            )
-        ).result(2)
-
-        example_config = config[0].get("exampleConfiguration")
-
-        ls.show_message(f"jsonServer.exampleConfiguration value: "
-                        "{example_config}")
-
-    except Exception as e:
-        ls.show_message_log(f"Error ocurred: {e}")
-
-
-@trlc_server.command(TrlcLanguageServer.CMD_UNREGISTER_COMPLETIONS)
-async def unregister_completions(ls: TrlcLanguageServer, *args):
-    """Unregister completions method on the client."""
-    params = UnregistrationParams(
-        unregisterations=[
-            Unregistration(id=str(uuid.uuid4()),
-                           method=TEXT_DOCUMENT_COMPLETION)
-        ]
-    )
-    response = await ls.unregister_capability_async(params)
-    if response is None:
-        ls.show_message("Successfully unregistered completions method")
-    else:
-        ls.show_message(
-            "Error happened during completions unregistration.",
-            MessageType.Error
-        )
