@@ -21,16 +21,12 @@
 # This server is derived from the pygls example server, licensed under
 # the Apache License, Version 2.0.
 
-import asyncio
 import sys
-import time
 import urllib.parse
-import uuid
 import threading
 import logging
 
 from lsprotocol.types import (
-    TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_DID_CHANGE,
     TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_DID_OPEN,
@@ -38,30 +34,25 @@ from lsprotocol.types import (
     WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
 )
 from lsprotocol.types import (
-    ConfigurationItem,
     DidChangeTextDocumentParams,
     DidCloseTextDocumentParams,
     DidOpenTextDocumentParams,
-    MessageType,
-    Registration,
-    RegistrationParams,
     SemanticTokens,
     SemanticTokensLegend,
     SemanticTokensParams,
-    Unregistration,
-    UnregistrationParams,
-    WorkspaceConfigurationParams,
     DidChangeWorkspaceFoldersParams,
 )
 from pygls.server import LanguageServer
+
+import trlc.lexer
+import trlc.errors
+
 from .trlc_utils import (
     Vscode_Message_Handler,
     Vscode_Source_Manager,
     File_Handler
 )
 
-import trlc.lexer
-import trlc.errors
 
 logger = logging.getLogger()
 
@@ -138,7 +129,7 @@ trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 
 
 @trlc_server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)
-def on_workspace_folders_change(ls, _):
+def on_workspace_folders_change(ls, _: DidChangeWorkspaceFoldersParams):
     """Workspace folders did change notification."""
     ls.show_message("Workspace folder did change!")
     ls.queue_event("reparse")
