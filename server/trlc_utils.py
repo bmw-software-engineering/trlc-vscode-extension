@@ -68,6 +68,9 @@ else:
     USE_VERIFY  = False
     CVC5_BINARY = None
 
+if CVC5_BINARY is not None:
+    if not os.path.exists(CVC5_BINARY):
+        USE_VERIFY = False
 
 class Vscode_Message_Handler(Message_Handler):
     """Reimplementation of TRLC's Message_Handler to emit the diagnostics."""
