@@ -21,10 +21,16 @@
 # This server is derived from the pygls example server, licensed under
 # the Apache License, Version 2.0.
 
-import sys
-import urllib.parse
-import threading
 import logging
+import os
+import re
+import sys
+import threading
+import urllib.parse
+
+import trlc.lexer
+import trlc.errors
+import trlc.ast
 
 from lsprotocol.types import (
     TEXT_DOCUMENT_DID_CHANGE,
@@ -32,6 +38,7 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_DID_OPEN,
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
     WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
+    TEXT_DOCUMENT_TYPE_DEFINITION,
 )
 from lsprotocol.types import (
     DidChangeTextDocumentParams,
@@ -41,11 +48,13 @@ from lsprotocol.types import (
     SemanticTokensLegend,
     SemanticTokensParams,
     DidChangeWorkspaceFoldersParams,
+    TypeDefinitionParams,
+    Location,
+    Range,
+    Position,
+    TypeDefinitionOptions,
 )
 from pygls.server import LanguageServer
-
-import trlc.lexer
-import trlc.errors
 
 from .trlc_utils import (
     Vscode_Message_Handler,
@@ -56,8 +65,10 @@ from .trlc_utils import (
 
 logger = logging.getLogger()
 
-COUNT_DOWN_START_IN_SECONDS = 10
-COUNT_DOWN_SLEEP_IN_SECONDS = 1
+RE_END_WORD = re.compile("^[A-Za-z_0-9]*")
+RE_START_WORD = re.compile("[A-Za-z_0-9]*$")
+RE_END_WORD_QUALIFIED = re.compile("^[A-Za-z_0-9.]*")
+RE_START_WORD_QUALIFIED = re.compile("[A-Za-z_0-9.]*$")
 
 
 class TrlcValidator(threading.Thread):
@@ -93,8 +104,10 @@ class TrlcLanguageServer(LanguageServer):
     def __init__(self, *args):
         super().__init__(*args)
         self.fh            = File_Handler()
+        self.packages      = {}
         self.queue_lock    = threading.Lock()
         self.queue         = []
+        self.symbols       = trlc.ast.Symbol_Table()
         self.trigger_parse = threading.Event()
         self.validator     = TrlcValidator(self)
         self.validator.start()
@@ -112,6 +125,25 @@ class TrlcLanguageServer(LanguageServer):
             vsm.register_workspace(folder_path)
 
         vsm.process()
+        self.symbols = vsm.stab
+
+        # Save uri to package mapping to remember the current package
+        for file_name, parser in vsm.rsl_files.items():
+            if hasattr(parser.cu.package, "name"):
+                self.packages[_get_uri(file_name)] = parser.cu.package.name
+            else:
+                self.packages[_get_uri(file_name)] = None
+        for file_name, parser in vsm.trlc_files.items():
+            if hasattr(parser.cu.package, "name"):
+                self.packages[_get_uri(file_name)] = parser.cu.package.name
+            else:
+                self.packages[_get_uri(file_name)] = None
+        for file_name, parser in vsm.check_files.items():
+            if hasattr(parser.cu.package, "name"):
+                self.packages[_get_uri(file_name)] = parser.cu.package.name
+            else:
+                self.packages[_get_uri(file_name)] = None
+
         if self.workspace.documents:
             for uri in self.workspace.documents:
                 self.publish_diagnostics(uri, [])
@@ -124,6 +156,12 @@ class TrlcLanguageServer(LanguageServer):
             self.queue.insert(0, (kind, uri, content))
             self.trigger_parse.set()
 
+
+def _get_uri(file_name):
+    abs_path = os.path.abspath(file_name)
+    url = urllib.parse.quote(abs_path.replace('\\', '/'))
+    uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
+    return uri
 
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 
@@ -161,6 +199,81 @@ def did_open(ls, params: DidOpenTextDocumentParams):
     document = ls.workspace.get_document(uri)
     content = document.source
     ls.queue_event("change", uri, content)
+
+
+@trlc_server.feature(TEXT_DOCUMENT_TYPE_DEFINITION, TypeDefinitionOptions())
+def goto_definition(ls, params: TypeDefinitionParams):
+    vmh = Vscode_Message_Handler()
+    uri_current = params.text_document.uri
+    line_no_at_pos = params.position.line
+    col_no_at_pos = params.position.character
+    location_target_trlc = None
+    location_target_vscode = None
+    document = ls.workspace.get_document(uri_current)
+    pkg_current = ls.packages[uri_current]
+    word_at_pos_qualified = document.word_at_position(
+        client_position=Position(line_no_at_pos, col_no_at_pos),
+        re_start_word=RE_START_WORD_QUALIFIED,
+        re_end_word=RE_END_WORD_QUALIFIED)
+    word_at_pos = document.word_at_position(
+        client_position=Position(line_no_at_pos, col_no_at_pos),
+        re_start_word=RE_START_WORD,
+        re_end_word=RE_END_WORD)
+    dots_count = word_at_pos_qualified.count(".")
+
+    if not isinstance(ls.symbols, trlc.ast.Symbol_Table):
+        return
+
+    # find target location
+    if dots_count == 0:
+        if word_at_pos in ls.packages.values():
+            location_target_trlc = ls.symbols.lookup_assuming(vmh, word_at_pos)
+        elif pkg_current is not None:
+            pkg_current_ast = ls.symbols.lookup_assuming(vmh, pkg_current)
+            location_target_trlc = pkg_current_ast.symbols.lookup_assuming(
+                vmh, word_at_pos)
+    elif dots_count == 1:
+        prefix_at_pos = word_at_pos_qualified.split(".")[0]
+        suffix_at_pos = word_at_pos_qualified.split(".")[1]
+        if word_at_pos == prefix_at_pos:
+            location_target_trlc = ls.symbols.lookup_assuming(
+                vmh, prefix_at_pos)
+        elif word_at_pos == suffix_at_pos:
+            pkg_imported_ast = ls.symbols.lookup_assuming(vmh, prefix_at_pos)
+            location_target_trlc = pkg_imported_ast.symbols.lookup_assuming(
+                vmh, suffix_at_pos)
+    elif dots_count == 2:
+        prefix_at_pos = word_at_pos_qualified.split(".")[0]
+        infix_at_pos = word_at_pos_qualified.split(".")[1]
+        suffix_at_pos = word_at_pos_qualified.split(".")[2]
+        if word_at_pos == prefix_at_pos:
+            location_target_trlc = ls.symbols.lookup_assuming(
+                vmh, prefix_at_pos)
+        elif word_at_pos == infix_at_pos:
+            pkg_imported_ast = ls.symbols.lookup_assuming(
+                vmh, prefix_at_pos)
+            location_target_trlc = pkg_imported_ast.symbols.lookup_assuming(
+                vmh, infix_at_pos)
+        elif word_at_pos == suffix_at_pos:
+            pkg_imported_ast = ls.symbols.lookup_assuming(vmh, prefix_at_pos)
+            enum_ast = pkg_imported_ast.symbols.lookup_assuming(
+                vmh, infix_at_pos)
+            location_target_trlc = enum_ast.literals.lookup_assuming(
+                vmh, suffix_at_pos)
+
+    # set target location
+    if (location_target_trlc is not None and
+            not isinstance(location_target_trlc, trlc.ast.Builtin_Type)):
+        file_name = location_target_trlc.location.file_name
+        line_no_target = location_target_trlc.location.line_no - 1
+        col_no_target = location_target_trlc.location.col_no
+        url = urllib.parse.quote(file_name.replace('\\', '/'))
+        uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
+        start_pos = Position(line_no_target, col_no_target)
+        end_pos = Position(line_no_target, col_no_target)
+        location_target_vscode = Location(uri, Range(start_pos, end_pos))
+
+    return location_target_vscode
 
 
 @trlc_server.feature(
