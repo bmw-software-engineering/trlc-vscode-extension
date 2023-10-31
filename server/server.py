@@ -163,6 +163,7 @@ def _get_uri(file_name):
     uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
     return uri
 
+
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 
 
