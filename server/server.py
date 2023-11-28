@@ -207,7 +207,7 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
             ls.parse_partial = False
         elif parsing == "partial":
             ls.parse_partial = True
-    except Exception:
+    except Exception:  # pylint: disable=W0718
         logger.error("Unable to get workspace configuration", exc_info=True)
 
     uri = params.text_document.uri
@@ -242,7 +242,7 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
             ls.parse_partial = False
         elif parsing == "partial":
             ls.parse_partial = True
-    except Exception:
+    except Exception:  # pylint: disable=W0718
         logger.error("Unable to get workspace configuration", exc_info=True)
 
     uri = params.text_document.uri
