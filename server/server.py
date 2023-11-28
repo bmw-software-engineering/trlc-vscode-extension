@@ -53,6 +53,8 @@ from lsprotocol.types import (
     Range,
     Position,
     TypeDefinitionOptions,
+    WorkspaceConfigurationParams,
+    ConfigurationItem,
 )
 from pygls.server import LanguageServer
 
@@ -103,13 +105,15 @@ class TrlcLanguageServer(LanguageServer):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.fh            = File_Handler()
-        self.packages      = {}
-        self.queue_lock    = threading.Lock()
-        self.queue         = []
-        self.symbols       = trlc.ast.Symbol_Table()
-        self.trigger_parse = threading.Event()
-        self.validator     = TrlcValidator(self)
+        self.diagnostic_history = {}
+        self.fh                 = File_Handler()
+        self.packages           = {}
+        self.parse_partial      = True
+        self.queue_lock         = threading.Lock()
+        self.queue              = []
+        self.symbols            = trlc.ast.Symbol_Table()
+        self.trigger_parse      = threading.Event()
+        self.validator          = TrlcValidator(self)
         self.validator.start()
 
     def validate(self):
@@ -122,7 +126,17 @@ class TrlcLanguageServer(LanguageServer):
             if (sys.platform.startswith("win32") and
                 folder_path.startswith("/")):
                 folder_path = folder_path[1:]
-            vsm.register_workspace(folder_path)
+
+            if self.parse_partial is True:
+                vsm.register_include(folder_path)
+            else:
+                vsm.register_workspace(folder_path)
+
+        if self.parse_partial is True:
+            for file_uri, file_content in self.fh.files.items():
+                parsed_file_uri = urllib.parse.urlparse(file_uri)
+                file_path = urllib.parse.unquote(parsed_file_uri.path)
+                vsm.register_file(file_path, file_content)
 
         vsm.process()
         self.symbols = vsm.stab
@@ -145,10 +159,11 @@ class TrlcLanguageServer(LanguageServer):
                 self.packages[_get_uri(file_name)] = None
 
         if self.workspace.documents:
-            for uri in self.workspace.documents:
+            for uri in self.diagnostic_history:
                 self.publish_diagnostics(uri, [])
         for uri, diagnostics in vmh.diagnostics.items():
             self.publish_diagnostics(uri, diagnostics)
+        self.diagnostic_history = vmh.diagnostics
         self.show_message_log("Diagnostics published")
 
     def queue_event(self, kind, uri=None, content=None):
@@ -175,9 +190,26 @@ def on_workspace_folders_change(ls, _: DidChangeWorkspaceFoldersParams):
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
-def did_change(ls, params: DidChangeTextDocumentParams):
+async def did_change(ls, params: DidChangeTextDocumentParams):
     """Text document did change notification."""
     ls.show_message("Text Document did change!")
+    try:
+        config = await ls.get_configuration_async(WorkspaceConfigurationParams(
+            items=[
+                ConfigurationItem(
+                    scope_uri="",
+                    section=TrlcLanguageServer.CONFIGURATION_SECTION
+                )
+            ]
+        ))
+        parsing = config[0].get("parsing")
+        if parsing == "full":
+            ls.parse_partial = False
+        elif parsing == "partial":
+            ls.parse_partial = True
+    except Exception:
+        logger.error("Unable to get workspace configuration", exc_info=True)
+
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
     content = document.source
@@ -193,9 +225,26 @@ def did_close(ls, params: DidCloseTextDocumentParams):
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_OPEN)
-def did_open(ls, params: DidOpenTextDocumentParams):
+async def did_open(ls, params: DidOpenTextDocumentParams):
     """Text document did open notification."""
     ls.show_message("Text Document Did Open")
+    try:
+        config = await ls.get_configuration_async(WorkspaceConfigurationParams(
+            items=[
+                ConfigurationItem(
+                    scope_uri="",
+                    section=TrlcLanguageServer.CONFIGURATION_SECTION
+                )
+            ]
+        ))
+        parsing = config[0].get("parsing")
+        if parsing == "full":
+            ls.parse_partial = False
+        elif parsing == "partial":
+            ls.parse_partial = True
+    except Exception:
+        logger.error("Unable to get workspace configuration", exc_info=True)
+
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
     content = document.source

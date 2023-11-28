@@ -76,12 +76,13 @@
         "commands": [],
         "configuration": {
             "type": "object",
-            "title": "ttrlc-vscode-extension server configuration",
+            "title": "trlc-vscode-extension server configuration",
             "properties": {
-                "jsonServer.exampleConfiguration": {
-                    "scope": "resource",
+                "trlcServer.parsing": {
+                    "scope": "window",
                     "type": "string",
-                    "default": "You can override this message."
+                    "default": "partial",
+                    "description": "Enable/Disable partial parsing. Set to full for complete parsing."
                 }
             }
         }
