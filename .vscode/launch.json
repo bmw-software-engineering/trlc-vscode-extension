@@ -7,8 +7,12 @@
             "type": "extensionHost",
             "request": "launch",
             "runtimeExecutable": "${execPath}",
-            "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
-            "outFiles": ["${workspaceRoot}/client/out/**/*.js"],
+            "args": [
+                "--extensionDevelopmentPath=${workspaceRoot}"
+            ],
+            "outFiles": [
+                "${workspaceRoot}/client/out/**/*.js"
+            ],
             "preLaunchTask": {
                 "type": "npm",
                 "script": "compile"
@@ -19,25 +23,23 @@
         },
         {
             "name": "Launch Server",
-            "type": "python",
+            "type": "node",
             "request": "launch",
-            "module": "server",
-            "args": ["--tcp"],
-            "justMyCode": false,
-            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--tcp"
+            ],
             "cwd": "${workspaceFolder}",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             }
         },
         {
+            "type": "node",
             "name": "Launch Server [WebSockets]",
-            "type": "python",
             "request": "launch",
-            "module": "server",
-            "args": ["--ws"],
-            "justMyCode": false,
-            "python": "${command:python.interpreterPath}",
+            "args": [
+                "--ws"
+            ],
             "cwd": "${workspaceFolder}",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
@@ -47,7 +49,10 @@
     "compounds": [
         {
             "name": "Server + Client",
-            "configurations": ["Launch Server", "Launch Client"]
+            "configurations": [
+                "Launch Server",
+                "Launch Client"
+            ]
         }
     ]
 }

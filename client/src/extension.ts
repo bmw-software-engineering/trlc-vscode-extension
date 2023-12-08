@@ -18,9 +18,10 @@
  * ----------------------------------------------------------------------- */
 "use strict";
 
-import * as net from "net";
+import * as os from 'os';
 import * as path from "path";
-import { ExtensionContext, ExtensionMode, workspace } from "vscode";
+import { spawn } from 'child_process';
+import { ExtensionContext, window, workspace } from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -45,26 +46,6 @@ function getClientOptions(): LanguageClientOptions {
     };
 }
 
-function startLangServerTCP(addr: number): LanguageClient {
-    const serverOptions: ServerOptions = () => {
-        return new Promise((resolve /*, reject */) => {
-            const clientSocket = new net.Socket();
-            clientSocket.connect(addr, "127.0.0.1", () => {
-                resolve({
-                    reader: clientSocket,
-                    writer: clientSocket,
-                });
-            });
-        });
-    };
-
-    return new LanguageClient(
-        `tcp lang server (port ${addr})`,
-        serverOptions,
-        getClientOptions()
-    );
-}
-
 function startLangServer(
     command: string,
     args: string[],
@@ -80,36 +61,39 @@ function startLangServer(
 }
 
 export function activate(context: ExtensionContext): void {
-    if (context.extensionMode === ExtensionMode.Development) {
-        const cwd = path.join(__dirname, "..", "..");
-        console.log("Hiasdfasdfasdf");
-        const pythonPath = workspace
-            .getConfiguration("python")
-            .get<string>("defaultInterpreterPath");
+    const cwd = path.join(__dirname, "..", "..");
+    const platform = os.platform();
+    let pythonInterpreterPath = 'python3';
+    if (platform === 'win32') {
+        const batchScriptPath = path.join(cwd, "utils/install-python.bat");
+        const childProcess = spawn('cmd', ['/c', batchScriptPath]);
 
-        if (!pythonPath) {
-            throw new Error("`python.pythonPath` is not set");
-        }
+        childProcess.stdout.on('data', (data) => {
+            console.log(`stdout: ${data}`);
+        });
 
-        client = startLangServer(pythonPath, ["-m", "server"], cwd);
+        childProcess.stderr.on('data', (data) => {
+            console.error(`stderr: ${data}`);
+        });
+
+        childProcess.on('exit', (code) => {
+            if (code === 0) {
+                console.log('Batch script executed successfully');
+                pythonInterpreterPath = 'python';
+                client = startLangServer(pythonInterpreterPath, ["-m", "server"], cwd);
+                context.subscriptions.push(client.start());
+            } else {
+                throw new Error(`Batch script exited with code ${code}`);
+            }
+        });
+    } else if (platform === 'darwin' || platform === 'linux') {
+        client = startLangServer(pythonInterpreterPath, ["-m", "server"], cwd);
         // Development - Run the server manually
         // client = startLangServerTCP(2087);
+        context.subscriptions.push(client.start());
     } else {
-        // workspace.getConfiguration("python"));
-        // Production - Client is going to run the server (for use within `.vsix` package)
-        const cwd = path.join(__dirname, "..", "..");
-        const pythonPath = workspace
-            .getConfiguration("python")
-            .get<string>("defaultInterpreterPath");
-
-        if (!pythonPath) {
-            throw new Error("`python.pythonPath` is not set");
-        }
-
-        client = startLangServer(pythonPath, ["-m", "server"], cwd);
+        window.showErrorMessage(`Platform ${platform} is not supported`);
     }
-
-    context.subscriptions.push(client.start());
 }
 
 export function deactivate(): Thenable<void> {

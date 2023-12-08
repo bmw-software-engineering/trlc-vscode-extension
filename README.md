@@ -3,26 +3,27 @@
 **Note: This extension is work in progress and is not yet fit for
 general use.**
 
-`trlc-vscode` is a visual studio code extension that provides editing
+`trlc-vscode-extension` is a visual studio code language support extension that provides editing
 features like syntax highlighting, auto completion and error checking
-for TRLC files. Get more information about
+for the TRLC language files.  
+Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
 ## Dependencies
 
-1. Install [Python](https://www.python.org/downloads/) >= 3.8.
-2. Download and Install [VSCode](https://code.visualstudio.com/download).
-3. Create `.vscode/settings.json` file and set
-   `python.defaultInterpreterPath` to point to your python
-   installation.
+1. Download and Install [VSCode](https://code.visualstudio.com/download).
+2. For **WINDOWS USERS** only: This extension tries to install python
+   automatically!  
+   **IMPORTANT**: After installing the .vsix extension file. The TRLC extension will prompt that it failed. Now **RESTART** Visual Studio Code and the extension should work as expected. If it still fails, you may need to install [python](https://www.python.org/downloads/) manually.
+   Make sure to add `python` to your PATH environment variable.   
+   For **LINUX** and **MACOS**: `python3` should already be in PATH. If not, install it manually and add it to PATH.
 
 ## Build from source
 
-1. Use the package manager [pip](https://pip.pypa.io/en/stable/) to
-   install required python packages.
+1. Use `make` to install required python packages:
 
    ```bash
-   pip install -r requirements.txt
+   make install-python-deps
    ```
 
 2. Make sure you have `Node.js` installed. You will likely need to
@@ -33,22 +34,15 @@ for TRLC files. Get more information about
    apt-get install -y nodejs
    ```
 
-   Then install `vsce` by running:
+3. Then use `make` to build the extension:
 
    ```bash
-   npm install -g @vscode/vsce
-   ```
-
-3. Use `vsce` to package the extension:
-
-   ```bash
-   cd ./trlc-new-vscode-plugin
-   vsce package
+   make build
    ```
 
 ## Run extension in debugger mode
 
-1. Open the source code in VS Code.
+1. Open the source code in VSCode.
 2. Run `npm install` in this folder.
 3. Open debug view (ctrl + shift + D).
 4. Select Server + Client and press F5.

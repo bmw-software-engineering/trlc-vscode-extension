@@ -7,9 +7,17 @@ lint: style
 style:
 	@python3 -m pycodestyle server
 
+install-python-deps:
+	@python3 -m pip install \
+	--target python-deps \
+	--isolated \
+	-I \
+	--platform any \
+	--only-binary :all: -r requirements.txt
+
 build:
-	npm install @vscode/vsce
-	vsce package
+	npm install
+	npx vsce package
 
 install: build
 	-code --uninstall-extension "bmw-group.trlc-vscode-extension"

@@ -1,5 +1,6 @@
 .vscode
 .gitignore
+.gitattributes
 client/out/*.map
 client/src/
 server/tests/
@@ -10,3 +11,6 @@ package-lock.json
 .pytest_cache
 Makefile
 requirements.txt
+Pipfile
+Pipfile.lock
+*.log
