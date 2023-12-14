@@ -224,6 +224,12 @@ def did_close(ls, params: DidCloseTextDocumentParams):
     ls.queue_event("delete", uri)
 
 
+@trlc_server.command("extension.parseFull")
+def cmd_parse_full(ls, *args):
+    ls.parse_partial = False
+    ls.queue_event("reparse")
+
+
 @trlc_server.feature(TEXT_DOCUMENT_DID_OPEN)
 async def did_open(ls, params: DidOpenTextDocumentParams):
     """Text document did open notification."""
