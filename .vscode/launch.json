@@ -10,8 +10,8 @@
             "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
             "outFiles": ["${workspaceRoot}/client/out/**/*.js"],
             "preLaunchTask": {
-            "type": "npm",
-            "script": "compile"
+                "type": "npm",
+                "script": "compile"
             },
             "env": {
                 "VSCODE_DEBUG_MODE": "true"

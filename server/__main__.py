@@ -31,8 +31,9 @@ import sys
 # import debugpy
 # debugpy.connect(5678)
 # debugpy.breakpoint()
+# logging.basicConfig(filename="pygls.log", level=logging.DEBUG, filemode="w")
+logging.basicConfig(filename="pygls.log", level=logging.WARNING, filemode="w")
 
-logging.basicConfig(filename="pygls.log", level=logging.DEBUG, filemode="w")
 
 if len(sys.path) <= 1:
     sys.path.append("python-deps")
