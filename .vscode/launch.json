@@ -10,8 +10,8 @@
             "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
             "outFiles": ["${workspaceRoot}/client/out/**/*.js"],
             "preLaunchTask": {
-                "type": "npm",
-                "script": "compile"
+            "type": "npm",
+            "script": "compile"
             },
             "env": {
                 "VSCODE_DEBUG_MODE": "true"
@@ -42,12 +42,36 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             }
+        },
+        {
+            "name": "Python debug server attached",
+            "type": "python",
+            "request": "attach",
+            "listen": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "justMyCode": true,
+            "presentation": {
+                "hidden": true,
+                "group": "",
+                "order": 4
+            }
         }
     ],
     "compounds": [
         {
-            "name": "Server + Client",
-            "configurations": ["Launch Server", "Launch Client"]
+            "name": "Debug Extension and Python",
+            "configurations": [
+                "Python debug server attached",
+                "Launch Client"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "hidden": false,
+                "group": "",
+                "order": 1
+            }
         }
     ]
 }

@@ -27,7 +27,12 @@ import argparse
 import logging
 import sys
 
-logging.basicConfig(filename="pygls.log", level=logging.WARNING, filemode="w")
+# Uncomment for debugging purposes
+# import debugpy
+# debugpy.connect(5678)
+# debugpy.breakpoint()
+
+logging.basicConfig(filename="pygls.log", level=logging.DEBUG, filemode="w")
 
 if len(sys.path) <= 1:
     sys.path.append("python-deps")
@@ -51,7 +56,7 @@ def add_arguments(parser):
                         help="Bind to this address")
     parser.add_argument("--port",
                         type=int,
-                        default=2087,
+                        default=5678,
                         help="Bind to this port")
 
 
