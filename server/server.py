@@ -39,6 +39,7 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
     WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
     TEXT_DOCUMENT_TYPE_DEFINITION,
+    TEXT_DOCUMENT_HOVER,
 )
 from lsprotocol.types import (
     DidChangeTextDocumentParams,
@@ -55,6 +56,8 @@ from lsprotocol.types import (
     TypeDefinitionOptions,
     WorkspaceConfigurationParams,
     ConfigurationItem,
+    TextDocumentPositionParams,
+    Hover,
 )
 from pygls.server import LanguageServer
 
@@ -114,6 +117,7 @@ class TrlcLanguageServer(LanguageServer):
         self.symbols            = trlc.ast.Symbol_Table()
         self.trigger_parse      = threading.Event()
         self.validator          = TrlcValidator(self)
+        self.all_files          = {}
         self.validator.start()
 
     def validate(self):
@@ -140,6 +144,7 @@ class TrlcLanguageServer(LanguageServer):
 
         vsm.process()
         self.symbols = vsm.stab
+        self.all_files = vsm.all_files
 
         # Save uri to package mapping to remember the current package
         for file_name, parser in vsm.rsl_files.items():
@@ -177,6 +182,11 @@ def _get_uri(file_name):
     url = urllib.parse.quote(abs_path.replace('\\', '/'))
     uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
     return uri
+
+def _get_file_path_from_uri(uri):
+    parsed_uri = urllib.parse.urlparse(uri)
+    file_path = urllib.parse.unquote(parsed_uri.path)
+    return file_path
 
 
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
@@ -330,6 +340,41 @@ def goto_definition(ls, params: TypeDefinitionParams):
         location_target_vscode = Location(uri, Range(start_pos, end_pos))
 
     return location_target_vscode
+
+
+@trlc_server.feature(TEXT_DOCUMENT_HOVER)
+def hover(ls, params: TextDocumentPositionParams):
+    curser_line = params.position.line
+    curser_col = params.position.character
+    uri = params.text_document.uri
+    file_path = _get_file_path_from_uri(uri)
+    tokens = ls.all_files[file_path].lexer.tokens
+    for token in tokens:
+        end_location = token.location.get_end_location()
+        end_line = (0 if end_location.line_no is None
+                    else end_location.line_no - 1)
+        end_col = 1 if end_location.col_no is None else end_location.col_no
+        start_line = (0 if token.location.line_no is None
+                    else token.location.line_no - 1)
+        start_col = (0 if token.location.col_no is None
+                    else token.location.col_no - 1)
+        if (start_col <= curser_col < end_col and
+              start_line <= curser_line <= end_line):
+            obj = token.ast_link
+            break
+        else:
+            obj = None
+    if isinstance(obj, (trlc.ast.Concrete_Type, trlc.ast.Composite_Component)):
+        desc = obj.description
+    elif isinstance(obj, trlc.ast.Name_Reference):
+        desc = obj.entity.description
+    elif isinstance(obj, trlc.ast.Enumeration_Literal):
+        desc = obj.value.description
+    else:
+        desc = None
+    start_pos = Position(line=start_line, character=start_col)
+    end_pos = Position(line=end_line, character=end_col)
+    return Hover(contents=desc, range=Range(start_pos, end_pos))
 
 
 @trlc_server.feature(
