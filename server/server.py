@@ -234,8 +234,8 @@ def did_close(ls, params: DidCloseTextDocumentParams):
     ls.queue_event("delete", uri)
 
 
-@trlc_server.command("extension.parseFull")
-def cmd_parse_full(ls, *args):  # pylint: disable=W0613
+@trlc_server.command("extension.parseAll")
+def cmd_parse_all(ls, *args):  # pylint: disable=W0613
     ls.parse_partial = False
     ls.queue_event("reparse")
 

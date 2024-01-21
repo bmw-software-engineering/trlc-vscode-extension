@@ -75,8 +75,8 @@
         ],
         "commands": [
             {
-                "command": "extension.parseFull",
-                "title": "parse full"
+                "command": "extension.parseAll",
+                "title": "TRLC parse all"
             }
         ],
         "configuration": {
