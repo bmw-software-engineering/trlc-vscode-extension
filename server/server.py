@@ -40,6 +40,7 @@ from lsprotocol.types import (
     WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
     TEXT_DOCUMENT_TYPE_DEFINITION,
     TEXT_DOCUMENT_HOVER,
+    TEXT_DOCUMENT_REFERENCES,
 )
 from lsprotocol.types import (
     DidChangeTextDocumentParams,
@@ -58,6 +59,8 @@ from lsprotocol.types import (
     ConfigurationItem,
     TextDocumentPositionParams,
     Hover,
+    ReferenceParams,
+    ReferenceRegistrationOptions,
 )
 from pygls.server import LanguageServer
 
@@ -183,10 +186,62 @@ def _get_uri(file_name):
     uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
     return uri
 
-def _get_file_path_from_uri(uri):
+
+def _get_file_path(uri):
     parsed_uri = urllib.parse.urlparse(uri)
     file_path = urllib.parse.unquote(parsed_uri.path)
     return file_path
+
+
+def _get_token(tokens, curser_line, curser_col):
+    """
+    Get the token located at the specified cursor position.
+
+    Parameters:
+    - tokens (list): A list of tokens to search through.
+    - curser_line (int): The line number of the cursor position.
+    - curser_col (int): The column number of the cursor position.
+
+    Returns:
+    - Token or None: The token found at the cursor position,
+      or None if no matching token is found.
+    """
+    tok = None
+    for token in tokens:
+        tok_loc = _get_location(token)
+        tok_rng = tok_loc.range
+        if (tok_rng.start.character <= curser_col < tok_rng.end.character and
+                tok_rng.start.line <= curser_line <= tok_rng.end.line):
+            tok = token
+            break
+    return tok
+
+
+def _get_location(obj):
+    """
+    Get the location details of the given object.
+
+    Parameters:
+    - obj: An object with location information.
+
+    Returns:
+    - Location: A Location object containing URI and Range details.
+    """
+    assert isinstance(obj, (trlc.lexer.Token, trlc.ast.Node))
+    end_location = obj.location.get_end_location()
+    end_line = (0 if end_location.line_no is None
+                else end_location.line_no - 1)
+    end_col = 1 if end_location.col_no is None else end_location.col_no
+    start_line = (0 if obj.location.line_no is None
+                  else obj.location.line_no - 1)
+    start_col = (0 if obj.location.col_no is None
+                 else obj.location.col_no - 1)
+    end_range = Position(line=end_line, character=end_col)
+    start_range = Position(line=start_line, character=start_col)
+    ref_range = Range(start=start_range, end=end_range)
+    ref_uri = _get_uri(obj.location.file_name)
+
+    return Location(uri=ref_uri, range=ref_range)
 
 
 trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
@@ -342,39 +397,97 @@ def goto_definition(ls, params: TypeDefinitionParams):
     return location_target_vscode
 
 
+@trlc_server.feature(TEXT_DOCUMENT_REFERENCES, ReferenceRegistrationOptions())
+def references(ls, params: ReferenceParams):
+    pars        = []
+    locations   = []
+    curser_line = params.position.line
+    curser_col  = params.position.character
+    uri         = params.text_document.uri
+    file_path   = _get_file_path(uri)
+    cur_pkg     = ls.all_files[file_path].cu.package
+    imp_pkg     = ls.all_files[file_path].cu.imports
+    tokens      = ls.all_files[file_path].lexer.tokens
+    cur_tok     = _get_token(tokens, curser_line, curser_col)
+
+    # Exit condition: If there is no token at the cursor position
+    # or the token lacks an ast_link.
+    # We specifically consider only identifiers, excluding Builtins.
+    if (cur_tok is None or
+            cur_tok.ast_link is None or
+            cur_tok.kind != "IDENTIFIER" or
+            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
+        return None
+
+    ast_obj = cur_tok.ast_link
+
+    # Reassign ast_obj if some specific ast objects occur
+    if isinstance(ast_obj, trlc.ast.Name_Reference):
+        ast_obj = ast_obj.entity
+    elif isinstance(ast_obj, trlc.ast.Record_Reference):
+        ast_obj = ast_obj.target
+    elif isinstance(ast_obj, trlc.ast.Enumeration_Literal):
+        ast_obj = ast_obj.value
+
+    cur_ast_name = ast_obj.name
+
+    # Filter for all relevant parsers
+    for par in ls.all_files.values():
+        if (cur_pkg == par.cu.package or
+                par.cu.package in imp_pkg or
+                cur_pkg in par.cu.imports):
+            pars.append(par)
+
+    # Iterate through all relevant Token_Streams and retrieve Token locations
+    for par in pars:
+        for tok in par.lexer.tokens:
+            if tok.ast_link == ast_obj and tok.value == cur_ast_name:
+                locations.append(_get_location(tok))
+            elif isinstance(tok.ast_link, trlc.ast.Name_Reference):
+                if (tok.ast_link.entity == ast_obj and
+                        tok.value == cur_ast_name):
+                    locations.append(_get_location(tok))
+            elif isinstance(tok.ast_link, trlc.ast.Record_Reference):
+                if (tok.ast_link.target == ast_obj and
+                        tok.value == cur_ast_name):
+                    locations.append(_get_location(tok))
+            elif isinstance(tok.ast_link, trlc.ast.Enumeration_Literal):
+                if (tok.ast_link.value == ast_obj and
+                        tok.value == cur_ast_name):
+                    locations.append(_get_location(tok))
+
+    return locations if locations else None
+
+
 @trlc_server.feature(TEXT_DOCUMENT_HOVER)
 def hover(ls, params: TextDocumentPositionParams):
+    desc    = None
     curser_line = params.position.line
     curser_col = params.position.character
     uri = params.text_document.uri
-    file_path = _get_file_path_from_uri(uri)
+    file_path = _get_file_path(uri)
     tokens = ls.all_files[file_path].lexer.tokens
-    for token in tokens:
-        end_location = token.location.get_end_location()
-        end_line = (0 if end_location.line_no is None
-                    else end_location.line_no - 1)
-        end_col = 1 if end_location.col_no is None else end_location.col_no
-        start_line = (0 if token.location.line_no is None
-                    else token.location.line_no - 1)
-        start_col = (0 if token.location.col_no is None
-                    else token.location.col_no - 1)
-        if (start_col <= curser_col < end_col and
-              start_line <= curser_line <= end_line):
-            obj = token.ast_link
-            break
-        else:
-            obj = None
-    if isinstance(obj, (trlc.ast.Concrete_Type, trlc.ast.Composite_Component)):
-        desc = obj.description
-    elif isinstance(obj, trlc.ast.Name_Reference):
-        desc = obj.entity.description
-    elif isinstance(obj, trlc.ast.Enumeration_Literal):
-        desc = obj.value.description
-    else:
-        desc = None
-    start_pos = Position(line=start_line, character=start_col)
-    end_pos = Position(line=end_line, character=end_col)
-    return Hover(contents=desc, range=Range(start_pos, end_pos))
+    cur_tok = _get_token(tokens, curser_line, curser_col)
+
+    # Exit condition: If there is no token at the cursor position
+    # or the token lacks an ast_link.
+    if (cur_tok is None or cur_tok.ast_link is None):
+        return None
+
+    ast_obj = cur_tok.ast_link
+    tok_loc = _get_location(ast_obj)
+    rng = tok_loc.range
+
+    # Get the object's description depending on the ast type
+    if isinstance(ast_obj, (trlc.ast.Concrete_Type,
+                            trlc.ast.Composite_Component)):
+        desc = ast_obj.description
+    elif isinstance(ast_obj, trlc.ast.Name_Reference):
+        desc = ast_obj.entity.description
+    elif isinstance(ast_obj, trlc.ast.Enumeration_Literal):
+        desc = ast_obj.value.description
+
+    return Hover(contents=desc, range=rng)
 
 
 @trlc_server.feature(
