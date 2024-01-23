@@ -399,15 +399,28 @@ def goto_definition(ls, params: TypeDefinitionParams):
 
 @trlc_server.feature(TEXT_DOCUMENT_REFERENCES, ReferenceRegistrationOptions())
 def references(ls, params: ReferenceParams):
+    """
+    Finds all references to the identifier at a given curser position.
+
+    Parameters:
+    - ls: The language server instance.
+    - params: ReferenceParams object containing curser position and uri
+
+    Returns:
+    - locations: A list of Location objects representing references to the
+      identifier. If no references are found, returns None.
+    """
+
     pars        = []
     locations   = []
     curser_line = params.position.line
     curser_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_file_path(uri)
-    cur_pkg     = ls.all_files[file_path].cu.package
-    imp_pkg     = ls.all_files[file_path].cu.imports
-    tokens      = ls.all_files[file_path].lexer.tokens
+    cur_par     = ls.all_files[file_path]
+    cur_pkg     = cur_par.cu.package
+    imp_pkg     = cur_par.cu.imports
+    tokens      = cur_par.lexer.tokens
     cur_tok     = _get_token(tokens, curser_line, curser_col)
 
     # Exit condition: If there is no token at the cursor position
@@ -419,6 +432,7 @@ def references(ls, params: ReferenceParams):
             isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
         return None
 
+    # Get the AST object at the curser position
     ast_obj = cur_tok.ast_link
 
     # Reassign ast_obj if some specific ast objects occur
@@ -429,32 +443,35 @@ def references(ls, params: ReferenceParams):
     elif isinstance(ast_obj, trlc.ast.Enumeration_Literal):
         ast_obj = ast_obj.value
 
-    cur_ast_name = ast_obj.name
-
     # Filter for all relevant parsers
     for par in ls.all_files.values():
-        if (cur_pkg == par.cu.package or
+        if (par.lexer.tokens and
+                (cur_pkg == par.cu.package or
                 par.cu.package in imp_pkg or
-                cur_pkg in par.cu.imports):
+                cur_pkg in par.cu.imports)):
             pars.append(par)
 
-    # Iterate through all relevant Token_Streams and retrieve Token locations
+    # Iterate through all relevant Token_Streams and their tokens.
     for par in pars:
         for tok in par.lexer.tokens:
-            if tok.ast_link == ast_obj and tok.value == cur_ast_name:
+            # We proceed to the next iteration if we encounter an assigned AST
+            # object that is not an identifier, indicating it is not the object
+            # itself.
+            if tok.kind != "IDENTIFIER":
+                continue
+            # Matches the AST objects depending on its type and retrives
+            # the Location of the matched tokens.
+            if ast_obj == tok.ast_link:
                 locations.append(_get_location(tok))
-            elif isinstance(tok.ast_link, trlc.ast.Name_Reference):
-                if (tok.ast_link.entity == ast_obj and
-                        tok.value == cur_ast_name):
-                    locations.append(_get_location(tok))
-            elif isinstance(tok.ast_link, trlc.ast.Record_Reference):
-                if (tok.ast_link.target == ast_obj and
-                        tok.value == cur_ast_name):
-                    locations.append(_get_location(tok))
-            elif isinstance(tok.ast_link, trlc.ast.Enumeration_Literal):
-                if (tok.ast_link.value == ast_obj and
-                        tok.value == cur_ast_name):
-                    locations.append(_get_location(tok))
+            elif (isinstance(tok.ast_link, trlc.ast.Name_Reference) and
+                    ast_obj == tok.ast_link.entity):
+                locations.append(_get_location(tok))
+            elif (isinstance(tok.ast_link, trlc.ast.Record_Reference) and
+                    ast_obj == tok.ast_link.target):
+                locations.append(_get_location(tok))
+            elif (isinstance(tok.ast_link, trlc.ast.Enumeration_Literal) and
+                    ast_obj == tok.ast_link.value):
+                locations.append(_get_location(tok))
 
     return locations if locations else None
 
@@ -475,7 +492,7 @@ def hover(ls, params: TextDocumentPositionParams):
         return None
 
     ast_obj = cur_tok.ast_link
-    tok_loc = _get_location(ast_obj)
+    tok_loc = _get_location(cur_tok)
     rng = tok_loc.range
 
     # Get the object's description depending on the ast type
