@@ -54,13 +54,11 @@ from lsprotocol.types import (
     Location,
     Range,
     Position,
-    TypeDefinitionOptions,
     WorkspaceConfigurationParams,
     ConfigurationItem,
     TextDocumentPositionParams,
     Hover,
     ReferenceParams,
-    ReferenceRegistrationOptions,
 )
 from pygls.server import LanguageServer
 
@@ -322,7 +320,7 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
     ls.queue_event("change", uri, content)
 
 
-@trlc_server.feature(TEXT_DOCUMENT_TYPE_DEFINITION, TypeDefinitionOptions())
+@trlc_server.feature(TEXT_DOCUMENT_TYPE_DEFINITION)
 def goto_definition(ls, params: TypeDefinitionParams):
     vmh = Vscode_Message_Handler()
     uri_current = params.text_document.uri
@@ -397,7 +395,7 @@ def goto_definition(ls, params: TypeDefinitionParams):
     return location_target_vscode
 
 
-@trlc_server.feature(TEXT_DOCUMENT_REFERENCES, ReferenceRegistrationOptions())
+@trlc_server.feature(TEXT_DOCUMENT_REFERENCES)
 def references(ls, params: ReferenceParams):
     """
     Finds all references to the identifier at a given curser position.
@@ -447,8 +445,8 @@ def references(ls, params: ReferenceParams):
     for par in ls.all_files.values():
         if (par.lexer.tokens and
                 (cur_pkg == par.cu.package or
-                par.cu.package in imp_pkg or
-                cur_pkg in par.cu.imports)):
+                    par.cu.package in imp_pkg or
+                    cur_pkg in par.cu.imports)):
             pars.append(par)
 
     # Iterate through all relevant Token_Streams and their tokens.
