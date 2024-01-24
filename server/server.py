@@ -126,11 +126,7 @@ class TrlcLanguageServer(LanguageServer):
         vsm = Vscode_Source_Manager(vmh, self.fh, self)
 
         for folder_uri in self.workspace.folders.keys():
-            parsed_uri = urllib.parse.urlparse(folder_uri)
-            folder_path = urllib.parse.unquote(parsed_uri.path)
-            if (sys.platform.startswith("win32") and
-                folder_path.startswith("/")):
-                folder_path = folder_path[1:]
+            folder_path = _get_path(folder_uri)
 
             if self.parse_partial is True:
                 vsm.register_include(folder_path)
@@ -139,8 +135,7 @@ class TrlcLanguageServer(LanguageServer):
 
         if self.parse_partial is True:
             for file_uri, file_content in self.fh.files.items():
-                parsed_file_uri = urllib.parse.urlparse(file_uri)
-                file_path = urllib.parse.unquote(parsed_file_uri.path)
+                file_path = _get_path(file_uri)
                 vsm.register_file(file_path, file_content)
 
         vsm.process()
@@ -185,10 +180,24 @@ def _get_uri(file_name):
     return uri
 
 
-def _get_file_path(uri):
+def _get_path(uri):
+    """
+    Extracts and returns the path from a given URI.
+
+    Parameters:
+    - uri (str): The URI to extract the path from.
+
+    Returns:
+    - path (str): The decoded path.
+    """
     parsed_uri = urllib.parse.urlparse(uri)
-    file_path = urllib.parse.unquote(parsed_uri.path)
-    return file_path
+    path = urllib.parse.unquote(parsed_uri.path)
+
+    # Adjust path for Windows platform if necessary
+    if (sys.platform.startswith("win32") and path.sartswith("/")):
+        path = path[1:]
+
+    return path
 
 
 def _get_token(tokens, curser_line, curser_col):
@@ -215,12 +224,37 @@ def _get_token(tokens, curser_line, curser_col):
     return tok
 
 
+def _get_ast_entity(token):
+    """
+    Extracts and returns the AST object of type 'trlc.ast.Entity' linked with
+    the token or any references associated with it.
+
+    Parameters:
+    - token (trlc.lexer.Token): The token from which to extract the AST object.
+
+    Returns:
+    - trlc.ast.Entity or None if the token is not linked with the required
+    types.
+    """
+    assert isinstance(token, trlc.lexer.Token)
+    tok_lk = token.ast_link
+
+    # Get the Entity type based on the type of the attribute token.ast_link
+    return (
+        tok_lk if isinstance(tok_lk, trlc.ast.Entity) else
+        tok_lk.entity if isinstance(tok_lk, trlc.ast.Name_Reference) else
+        tok_lk.target if isinstance(tok_lk, trlc.ast.Record_Reference) else
+        tok_lk.value if isinstance(tok_lk, trlc.ast.Enumeration_Literal) else
+        None)
+
+
 def _get_location(obj):
     """
     Get the location details of the given object.
 
     Parameters:
-    - obj: An object with location information.
+    - obj: An object with location information either of type trlc.lexer.Token
+      or trlc.ast.Node.
 
     Returns:
     - Location: A Location object containing URI and Range details.
@@ -255,7 +289,6 @@ def on_workspace_folders_change(ls, _: DidChangeWorkspaceFoldersParams):
 @trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
 async def did_change(ls, params: DidChangeTextDocumentParams):
     """Text document did change notification."""
-    ls.show_message("Text Document did change!")
     try:
         config = await ls.get_configuration_async(WorkspaceConfigurationParams(
             items=[
@@ -282,7 +315,6 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
 @trlc_server.feature(TEXT_DOCUMENT_DID_CLOSE)
 def did_close(ls, params: DidCloseTextDocumentParams):
     """Text document did close notification."""
-    ls.show_message("Text Document Did Close")
     uri = params.text_document.uri
     ls.queue_event("delete", uri)
 
@@ -296,7 +328,6 @@ def cmd_parse_all(ls, *args):  # pylint: disable=W0613
 @trlc_server.feature(TEXT_DOCUMENT_DID_OPEN)
 async def did_open(ls, params: DidOpenTextDocumentParams):
     """Text document did open notification."""
-    ls.show_message("Text Document Did Open")
     try:
         config = await ls.get_configuration_async(WorkspaceConfigurationParams(
             items=[
@@ -398,27 +429,28 @@ def goto_definition(ls, params: TypeDefinitionParams):
 @trlc_server.feature(TEXT_DOCUMENT_REFERENCES)
 def references(ls, params: ReferenceParams):
     """
-    Finds all references to the identifier at a given curser position.
+    Finds all references for the identifier token at a given curser position
+    linked to identical AST objects of types Entity, Record_Reference,
+    Name_Reference or Enumeration_Literal.
 
     Parameters:
     - ls: The language server instance.
-    - params: ReferenceParams object containing curser position and uri
+    - params: ReferenceParams object containing the curser position and the
+      uri.
 
     Returns:
-    - locations: A list of Location objects representing references to the
-      identifier. If no references are found, returns None.
+    - locations: A list of Location objects representing the references to the
+      identifier. If no references are found, None is returned.
     """
-
     pars        = []
     locations   = []
     curser_line = params.position.line
     curser_col  = params.position.character
     uri         = params.text_document.uri
-    file_path   = _get_file_path(uri)
-    cur_par     = ls.all_files[file_path]
-    cur_pkg     = cur_par.cu.package
-    imp_pkg     = cur_par.cu.imports
-    tokens      = cur_par.lexer.tokens
+    file_path   = _get_path(uri)
+    cur_pkg     = ls.all_files[file_path].cu.package
+    imp_pkg     = ls.all_files[file_path].cu.imports
+    tokens      = ls.all_files[file_path].lexer.tokens
     cur_tok     = _get_token(tokens, curser_line, curser_col)
 
     # Exit condition: If there is no token at the cursor position
@@ -430,16 +462,9 @@ def references(ls, params: ReferenceParams):
             isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
         return None
 
-    # Get the AST object at the curser position
-    ast_obj = cur_tok.ast_link
-
-    # Reassign ast_obj if some specific ast objects occur
-    if isinstance(ast_obj, trlc.ast.Name_Reference):
-        ast_obj = ast_obj.entity
-    elif isinstance(ast_obj, trlc.ast.Record_Reference):
-        ast_obj = ast_obj.target
-    elif isinstance(ast_obj, trlc.ast.Enumeration_Literal):
-        ast_obj = ast_obj.value
+    # Get the trlc.ast.Entity object at the cursor position or from another
+    # location where the Entity is explicitly defined.
+    ast_obj = _get_ast_entity(cur_tok)
 
     # Filter for all relevant parsers
     for par in ls.all_files.values():
@@ -452,23 +477,13 @@ def references(ls, params: ReferenceParams):
     # Iterate through all relevant Token_Streams and their tokens.
     for par in pars:
         for tok in par.lexer.tokens:
-            # We proceed to the next iteration if we encounter an assigned AST
-            # object that is not an identifier, indicating it is not the object
-            # itself.
+            # We proceed to the next iteration if we encounter a token that is
+            # not an identifier.
             if tok.kind != "IDENTIFIER":
                 continue
-            # Matches the AST objects depending on its type and retrives
-            # the Location of the matched tokens.
-            if ast_obj == tok.ast_link:
-                locations.append(_get_location(tok))
-            elif (isinstance(tok.ast_link, trlc.ast.Name_Reference) and
-                    ast_obj == tok.ast_link.entity):
-                locations.append(_get_location(tok))
-            elif (isinstance(tok.ast_link, trlc.ast.Record_Reference) and
-                    ast_obj == tok.ast_link.target):
-                locations.append(_get_location(tok))
-            elif (isinstance(tok.ast_link, trlc.ast.Enumeration_Literal) and
-                    ast_obj == tok.ast_link.value):
+            # Retrive the trlc.ast.Entity object behind the link and check for
+            # equality.
+            if ast_obj == _get_ast_entity(tok):
                 locations.append(_get_location(tok))
 
     return locations if locations else None
@@ -480,7 +495,7 @@ def hover(ls, params: TextDocumentPositionParams):
     curser_line = params.position.line
     curser_col = params.position.character
     uri = params.text_document.uri
-    file_path = _get_file_path(uri)
+    file_path = _get_path(uri)
     tokens = ls.all_files[file_path].lexer.tokens
     cur_tok = _get_token(tokens, curser_line, curser_col)
 
