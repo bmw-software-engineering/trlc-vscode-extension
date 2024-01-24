@@ -194,7 +194,7 @@ def _get_path(uri):
     path = urllib.parse.unquote(parsed_uri.path)
 
     # Adjust path for Windows platform if necessary
-    if (sys.platform.startswith("win32") and path.sartswith("/")):
+    if (sys.platform.startswith("win32") and path.startswith("/")):
         path = path[1:]
 
     return path
