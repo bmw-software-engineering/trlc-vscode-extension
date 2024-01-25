@@ -459,33 +459,51 @@ def references(ls, params: ReferenceParams):
 
 @trlc_server.feature(TEXT_DOCUMENT_HOVER)
 def hover(ls, params: TextDocumentPositionParams):
-    desc    = None
+    """
+    Provides user defined description from Record_Type, Tuple_Type,
+    Composite_Component, Enumeration_Type and Enumeration_Literal_Spec at the
+    identifier token at a given curser position associated with the described
+    AST object.
+
+    Parameters:
+    - ls: The language server instance.
+    - params: TextDocumentPositionParams object containing the curser position
+      and the uri.
+
+    Returns:
+    - Hover or None: A Hover object containing the description about the
+      identifier. Returns None if no valid identifier is found at the cursor
+      position or if the AST Entity associated with the identifier lacks a
+      description.
+    """
+    desc        = None
     curser_line = params.position.line
-    curser_col = params.position.character
-    uri = params.text_document.uri
-    file_path = _get_path(uri)
-    tokens = ls.all_files[file_path].lexer.tokens
-    cur_tok = _get_token(tokens, curser_line, curser_col)
+    curser_col  = params.position.character
+    uri         = params.text_document.uri
+    file_path   = _get_path(uri)
+    tokens      = ls.all_files[file_path].lexer.tokens
+    cur_tok     = _get_token(tokens, curser_line, curser_col)
 
     # Exit condition: If there is no token at the cursor position
     # or the token lacks an ast_link.
-    if (cur_tok is None or cur_tok.ast_link is None):
+    # We specifically consider only identifiers, excluding Builtins.
+    if (cur_tok is None or
+            cur_tok.ast_link is None or
+            cur_tok.kind != "IDENTIFIER" or
+            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
         return None
 
-    ast_obj = cur_tok.ast_link
+    ast_obj = _get_ast_entity(cur_tok)
     tok_loc = _get_location(cur_tok)
-    rng = tok_loc.range
+    tok_rng = tok_loc.range
 
-    # Get the object's description depending on the ast type
-    if isinstance(ast_obj, (trlc.ast.Concrete_Type,
-                            trlc.ast.Composite_Component)):
+    # Get the object's description, but not all Entities have descriptions
+    try:
         desc = ast_obj.description
-    elif isinstance(ast_obj, trlc.ast.Name_Reference):
-        desc = ast_obj.entity.description
-    elif isinstance(ast_obj, trlc.ast.Enumeration_Literal):
-        desc = ast_obj.value.description
+    except AttributeError:
+        return None
 
-    return Hover(contents=desc, range=rng)
+    return Hover(contents=desc, range=tok_rng)
 
 
 @trlc_server.feature(
