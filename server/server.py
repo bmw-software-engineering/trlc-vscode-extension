@@ -41,6 +41,7 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_TYPE_DEFINITION,
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_REFERENCES,
+    TEXT_DOCUMENT_DEFINITION,
 )
 from lsprotocol.types import (
     DidChangeTextDocumentParams,
@@ -59,6 +60,7 @@ from lsprotocol.types import (
     TextDocumentPositionParams,
     Hover,
     ReferenceParams,
+    DefinitionParams,
 )
 from pygls.server import LanguageServer
 
@@ -352,78 +354,44 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
 
 
 @trlc_server.feature(TEXT_DOCUMENT_TYPE_DEFINITION)
-def goto_definition(ls, params: TypeDefinitionParams):
-    vmh = Vscode_Message_Handler()
-    uri_current = params.text_document.uri
-    line_no_at_pos = params.position.line
-    col_no_at_pos = params.position.character
-    location_target_trlc = None
-    location_target_vscode = None
-    document = ls.workspace.get_document(uri_current)
-    pkg_current = ls.packages[uri_current]
-    word_at_pos_qualified = document.word_at_position(
-        client_position=Position(line_no_at_pos, col_no_at_pos),
-        re_start_word=RE_START_WORD_QUALIFIED,
-        re_end_word=RE_END_WORD_QUALIFIED)
-    word_at_pos = document.word_at_position(
-        client_position=Position(line_no_at_pos, col_no_at_pos),
-        re_start_word=RE_START_WORD,
-        re_end_word=RE_END_WORD)
-    dots_count = word_at_pos_qualified.count(".")
+def goto_type_definition(ls, params: TypeDefinitionParams):
+    """
+    Finds the location of the type definition for the identifier token at a
+    given curser position linked to an AST object of type Entity
+    
+    Parameters:
+    - ls: The language server instance.
+    - params: TypeDefinitionParams object containing the curser position and
+      the uri.
 
-    if not isinstance(ls.symbols, trlc.ast.Symbol_Table):
-        return
+    Returns:
+    - Location or None: The location of the type definition. Returns None if no
+      type definition is found or if the cursor position does not point to an
+      identifier or this identifier is not linked to an AST entity.
+    """
+    curser_line = params.position.line
+    curser_col  = params.position.character
+    uri         = params.text_document.uri
+    file_path   = _get_path(uri)
+    tokens      = ls.all_files[file_path].lexer.tokens
+    cur_tok     = _get_token(tokens, curser_line, curser_col)
+    ast_loc     = None
 
-    # find target location
-    if dots_count == 0:
-        if word_at_pos in ls.packages.values():
-            location_target_trlc = ls.symbols.lookup_assuming(vmh, word_at_pos)
-        elif pkg_current is not None:
-            pkg_current_ast = ls.symbols.lookup_assuming(vmh, pkg_current)
-            location_target_trlc = pkg_current_ast.symbols.lookup_assuming(
-                vmh, word_at_pos)
-    elif dots_count == 1:
-        prefix_at_pos = word_at_pos_qualified.split(".")[0]
-        suffix_at_pos = word_at_pos_qualified.split(".")[1]
-        if word_at_pos == prefix_at_pos:
-            location_target_trlc = ls.symbols.lookup_assuming(
-                vmh, prefix_at_pos)
-        elif word_at_pos == suffix_at_pos:
-            pkg_imported_ast = ls.symbols.lookup_assuming(vmh, prefix_at_pos)
-            location_target_trlc = pkg_imported_ast.symbols.lookup_assuming(
-                vmh, suffix_at_pos)
-    elif dots_count == 2:
-        prefix_at_pos = word_at_pos_qualified.split(".")[0]
-        infix_at_pos = word_at_pos_qualified.split(".")[1]
-        suffix_at_pos = word_at_pos_qualified.split(".")[2]
-        if word_at_pos == prefix_at_pos:
-            location_target_trlc = ls.symbols.lookup_assuming(
-                vmh, prefix_at_pos)
-        elif word_at_pos == infix_at_pos:
-            pkg_imported_ast = ls.symbols.lookup_assuming(
-                vmh, prefix_at_pos)
-            location_target_trlc = pkg_imported_ast.symbols.lookup_assuming(
-                vmh, infix_at_pos)
-        elif word_at_pos == suffix_at_pos:
-            pkg_imported_ast = ls.symbols.lookup_assuming(vmh, prefix_at_pos)
-            enum_ast = pkg_imported_ast.symbols.lookup_assuming(
-                vmh, infix_at_pos)
-            location_target_trlc = enum_ast.literals.lookup_assuming(
-                vmh, suffix_at_pos)
+    # Exit condition: If there is no token at the cursor position
+    # or the token lacks an ast_link.
+    # We specifically consider only identifiers, excluding Builtins.
+    if (cur_tok is None or
+            cur_tok.ast_link is None or
+            cur_tok.kind != "IDENTIFIER" or
+            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
+        return None
 
-    # set target location
-    if (location_target_trlc is not None and
-            not isinstance(location_target_trlc, trlc.ast.Builtin_Type)):
-        file_name = location_target_trlc.location.file_name
-        line_no_target = location_target_trlc.location.line_no - 1
-        col_no_target = location_target_trlc.location.col_no
-        url = urllib.parse.quote(file_name.replace('\\', '/'))
-        uri = urllib.parse.urlunparse(('file', '', url, '', '', ''))
-        start_pos = Position(line_no_target, col_no_target)
-        end_pos = Position(line_no_target, col_no_target)
-        location_target_vscode = Location(uri, Range(start_pos, end_pos))
+    # Get the trlc.ast.Entity object at the cursor position or from another
+    # location where the Entity is explicitly defined.
+    ast_obj = _get_ast_entity(cur_tok)
+    ast_loc = _get_location(ast_obj)
 
-    return location_target_vscode
+    return ast_loc if ast_loc else None
 
 
 @trlc_server.feature(TEXT_DOCUMENT_REFERENCES)
