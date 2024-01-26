@@ -30,44 +30,46 @@ import urllib.parse
 
 import trlc.lexer
 import trlc.errors
-import trlc.ast
+import trlc.lexer
 
 from lsprotocol.types import (
     TEXT_DOCUMENT_DID_CHANGE,
     TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_DID_OPEN,
-    TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
-    WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
-    TEXT_DOCUMENT_TYPE_DEFINITION,
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_REFERENCES,
-    TEXT_DOCUMENT_DEFINITION,
-)
-from lsprotocol.types import (
+    TEXT_DOCUMENT_RENAME,
+    TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+    TEXT_DOCUMENT_TYPE_DEFINITION,
+    WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
+    ConfigurationItem,
     DidChangeTextDocumentParams,
+    DidChangeWorkspaceFoldersParams,
     DidCloseTextDocumentParams,
     DidOpenTextDocumentParams,
+    Hover,
+    Location,
+    OptionalVersionedTextDocumentIdentifier,
+    Position,
+    Range,
+    ReferenceParams,
+    RenameParams,
     SemanticTokens,
     SemanticTokensLegend,
     SemanticTokensParams,
-    DidChangeWorkspaceFoldersParams,
-    TypeDefinitionParams,
-    Location,
-    Range,
-    Position,
-    WorkspaceConfigurationParams,
-    ConfigurationItem,
+    TextDocumentEdit,
     TextDocumentPositionParams,
-    Hover,
-    ReferenceParams,
-    DefinitionParams,
+    TextEdit,
+    TypeDefinitionParams,
+    WorkspaceConfigurationParams,
+    WorkspaceEdit,
 )
 from pygls.server import LanguageServer
 
 from .trlc_utils import (
+    File_Handler,
     Vscode_Message_Handler,
     Vscode_Source_Manager,
-    File_Handler
 )
 
 
@@ -383,7 +385,8 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     if (cur_tok is None or
             cur_tok.ast_link is None or
             cur_tok.kind != "IDENTIFIER" or
-            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
+            isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
+                                          trlc.ast.Builtin_Function))):
         return None
 
     # Get the trlc.ast.Entity object at the cursor position or from another
@@ -427,7 +430,8 @@ def references(ls, params: ReferenceParams):
     if (cur_tok is None or
             cur_tok.ast_link is None or
             cur_tok.kind != "IDENTIFIER" or
-            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
+            isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
+                                          trlc.ast.Builtin_Function))):
         return None
 
     # Get the trlc.ast.Entity object at the cursor position or from another
@@ -490,7 +494,8 @@ def hover(ls, params: TextDocumentPositionParams):
     if (cur_tok is None or
             cur_tok.ast_link is None or
             cur_tok.kind != "IDENTIFIER" or
-            isinstance(cur_tok.ast_link, trlc.ast.Builtin_Type)):
+            isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
+                                          trlc.ast.Builtin_Function))):
         return None
 
     ast_obj = _get_ast_entity(cur_tok)
@@ -504,6 +509,91 @@ def hover(ls, params: TextDocumentPositionParams):
         return None
 
     return Hover(contents=desc, range=tok_rng)
+
+
+@trlc_server.feature(TEXT_DOCUMENT_RENAME)
+def rename(ls, params: RenameParams):
+    """
+    Performs a rename action for a name that is not a Builtin_Type or
+    Builtin_Function at a given curser position. The renaming is only allowed
+    if all files in the workspace are syntactically valid TRLC. Renaming is
+    only available if parsing is set to 'full'.
+
+    Parameters:
+    - ls: The language server instance.
+    - params: RenameParams object containing the curser position and the uri.
+
+    Returns:
+    - WorkspaceEdit or None: A WorkspaceEdit object containing the changes to
+      be made. Returns None if no valid identifier is found at the cursor
+      position or if any TRLC file in the workspace is not valid.
+    """
+
+    # Get information from the params
+    curser_line         = params.position.line
+    curser_col          = params.position.character
+    uri                 = params.text_document.uri
+    file_path           = _get_path(uri)
+    cur_tok             = _get_token(ls.all_files[file_path].lexer.tokens,
+                                     curser_line,
+                                     curser_col)
+    new_text            = params.new_name
+
+    # Data structures to track locations for renaming
+    file_changes        = []
+    file_changes_by_uri = {}
+    files_changes       = []
+
+    # Flag to check for valid TRLC
+    is_valid            = True
+
+    # Exit if parsing is set to partial or not set at all, as the default is
+    # partial parsing.
+    if ls.parse_partial is True:
+        ls.show_message("Rename symbol is only available if parsing is set to \
+                        'full'.")
+        return WorkspaceEdit(document_changes=files_changes)
+
+    # Exit if the current token is not legitimate for renaming
+    if(cur_tok is None or
+            cur_tok.kind != "IDENTIFIER" or
+            isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
+                                          trlc.ast.Builtin_Function))):
+        ls.show_message("Only names can be renamed excluding builtins.")
+        return WorkspaceEdit(document_changes=files_changes)
+
+    # Check if there are any errors in TRLC
+    for diagnostics in ls.diagnostic_history.values():
+        is_valid &= not any(diagnostic.severity == 1 for
+                            diagnostic in diagnostics)
+
+    # Prompt the user if errors are detected and exit with no changes made
+    if not is_valid:
+        ls.show_message("Resolve errors or undo if errors occurred after \
+                        renaming.")
+        return WorkspaceEdit(document_changes=files_changes)
+
+    # Find all references to the symbol being renamed
+    locs = references(ls, params) or []
+
+    # Group references by URI and store the corresponding TextEdit objects
+    if locs:
+        for loc in locs:
+            if loc.uri not in file_changes_by_uri:
+                file_changes_by_uri[loc.uri] = [TextEdit(range=loc.range,
+                                                         new_text=new_text)]
+            else:
+                file_changes_by_uri[loc.uri].append(TextEdit(range=loc.range,
+                                                             new_text=new_text)
+                                                             )
+
+    # Create TextDocumentEdit objects for each URI and its renaming locations
+    for uri, file_changes in file_changes_by_uri.items():
+        files_changes.append(TextDocumentEdit(
+                                OptionalVersionedTextDocumentIdentifier(uri),
+                                file_changes))
+
+    return WorkspaceEdit(document_changes=files_changes)
 
 
 @trlc_server.feature(
