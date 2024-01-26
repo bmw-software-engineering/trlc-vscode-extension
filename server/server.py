@@ -524,8 +524,8 @@ def rename(ls, params: RenameParams):
     - params: RenameParams object containing the curser position and the uri.
 
     Returns:
-    - WorkspaceEdit or None: A WorkspaceEdit object containing the changes to
-      be made. Returns None if no valid identifier is found at the cursor
+    - WorkspaceEdit: A WorkspaceEdit object containing the changes to be made.
+      Returns an empty object if no valid identifier is found at the cursor
       position or if any TRLC file in the workspace is not valid.
     """
 
