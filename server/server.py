@@ -23,7 +23,6 @@
 
 import logging
 import os
-import re
 import sys
 import threading
 import urllib.parse
@@ -75,11 +74,6 @@ from .trlc_utils import (
 
 logger = logging.getLogger()
 
-RE_END_WORD = re.compile("^[A-Za-z_0-9]*")
-RE_START_WORD = re.compile("[A-Za-z_0-9]*$")
-RE_END_WORD_QUALIFIED = re.compile("^[A-Za-z_0-9.]*")
-RE_START_WORD_QUALIFIED = re.compile("[A-Za-z_0-9.]*$")
-
 
 class TrlcValidator(threading.Thread):
     def __init__(self, server):
@@ -115,7 +109,6 @@ class TrlcLanguageServer(LanguageServer):
         super().__init__(*args)
         self.diagnostic_history = {}
         self.fh                 = File_Handler()
-        self.packages           = {}
         self.parse_partial      = True
         self.queue_lock         = threading.Lock()
         self.queue              = []
@@ -145,23 +138,6 @@ class TrlcLanguageServer(LanguageServer):
         vsm.process()
         self.symbols = vsm.stab
         self.all_files = vsm.all_files
-
-        # Save uri to package mapping to remember the current package
-        for file_name, parser in vsm.rsl_files.items():
-            if hasattr(parser.cu.package, "name"):
-                self.packages[_get_uri(file_name)] = parser.cu.package.name
-            else:
-                self.packages[_get_uri(file_name)] = None
-        for file_name, parser in vsm.trlc_files.items():
-            if hasattr(parser.cu.package, "name"):
-                self.packages[_get_uri(file_name)] = parser.cu.package.name
-            else:
-                self.packages[_get_uri(file_name)] = None
-        for file_name, parser in vsm.check_files.items():
-            if hasattr(parser.cu.package, "name"):
-                self.packages[_get_uri(file_name)] = parser.cu.package.name
-            else:
-                self.packages[_get_uri(file_name)] = None
 
         if self.workspace.documents:
             for uri in self.diagnostic_history:
