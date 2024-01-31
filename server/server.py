@@ -32,6 +32,7 @@ import trlc.errors
 import trlc.lexer
 
 from lsprotocol.types import (
+    TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_DID_CHANGE,
     TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_DID_OPEN,
@@ -41,6 +42,10 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
     TEXT_DOCUMENT_TYPE_DEFINITION,
     WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
+    CompletionItem,
+    CompletionList,
+    CompletionOptions,
+    CompletionParams,
     ConfigurationItem,
     DidChangeTextDocumentParams,
     DidChangeWorkspaceFoldersParams,
@@ -180,27 +185,35 @@ def _get_path(uri):
     return path
 
 
-def _get_token(tokens, curser_line, curser_col):
+def _get_token(tokens, cursor_line, cursor_col, greedy=False):
     """
     Get the token located at the specified cursor position.
 
     Parameters:
     - tokens (list): A list of tokens to search through.
-    - curser_line (int): The line number of the cursor position.
-    - curser_col (int): The column number of the cursor position.
+    - cursor_line (int): The line number of the cursor position.
+    - cursor_col (int): The column number of the cursor position.
+    - greedy: (bool): Takes the previous token if there is no match for the
+      current cursor_col. Takes place when cursor_col refers to whitespace.
 
     Returns:
     - Token or None: The token found at the cursor position,
       or None if no matching token is found.
     """
     tok = None
-    for token in tokens:
-        tok_loc = _get_location(token)
-        tok_rng = tok_loc.range
-        if (tok_rng.start.character <= curser_col < tok_rng.end.character and
-                tok_rng.start.line <= curser_line <= tok_rng.end.line):
-            tok = token
-            break
+    while True:
+        for token in tokens:
+            tok_loc = _get_location(token)
+            tok_rng = tok_loc.range
+            if (tok_rng.start.character <= cursor_col <
+                    tok_rng.end.character and
+                    tok_rng.start.line <= cursor_line <= tok_rng.end.line):
+                tok = token
+                break
+        if cursor_col > 0 and greedy and tok is None:
+            cursor_col -= 1
+            continue
+        break
     return tok
 
 
@@ -331,15 +344,100 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
     ls.queue_event("change", uri, content)
 
 
+@trlc_server.feature(TEXT_DOCUMENT_COMPLETION,
+                     CompletionOptions(trigger_characters=["{", " ", "."]))
+def completion(ls, params: CompletionParams):
+    """
+    Gets completion items at a given cursor position for Package, Components of
+    Record_Type, Enumeration_Literal, Tuple_Type in checks and Record_Reference
+    when specific trigger characters appear. For the functionality to work
+    correctly, there should be at least two spaces before any character appears
+    on the line behind the cursor.
+
+    Parameters:
+    - ls: The language server instance.
+    - params: CompletionParams object containing the cursor position, the uri
+      and the trigger character
+
+    Returns:
+    - CompletionList: A list of resolved completion items.
+    """
+    cursor_line  = params.position.line
+    cursor_col   = params.position.character
+    uri          = params.text_document.uri
+    trigger_char = params.context.trigger_character
+    file_path    = _get_path(uri)
+    tokens       = ls.all_files[file_path].lexer.tokens
+    tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
+    label_list   = None
+    items        = []
+
+    # Populate label_list with package names if the trigger character is a
+    # space and the token value is either 'package' or 'import'.
+    if trigger_char == " " and tok and tok.value in ["package", "import"]:
+        label_list = [f"{value.name}" for value in ls.symbols.table.values()
+                      if isinstance(value, trlc.ast.Package)]
+
+    # Exit condition: If there is no token at the cursor position
+    # or the token lacks an ast_link.
+    if tok is None or tok.ast_link is None:
+        return CompletionList(is_incomplete=False, items=items)
+
+    # Generate completion items based on the trigger character and AST link
+    # type.
+    # Autocomplete non-optional components in Record_Object
+    if trigger_char == "{" and isinstance(tok.ast_link,
+                                          trlc.ast.Record_Object):
+        label_list = ["".join([f"\n    {c_name} =" if value.optional is False
+                               else "" for c_name, value in
+                               tok.ast_link.n_typ.components.table.items()]) +
+                      "\n"]
+
+    # Autocomplete qualified names of Record_Types
+    elif trigger_char == "." and isinstance(tok.ast_link, trlc.ast.Package):
+        label_list = [f"{value.name}" for value in
+                      tok.ast_link.symbols.table.values() if not
+                      isinstance(value, trlc.ast.Record_Object)]
+
+    # Autocomplete Enumeration_Literal
+    elif (trigger_char == "." and
+          isinstance(tok.ast_link, trlc.ast.Enumeration_Type)):
+        label_list = [f"{value.name}" for value in
+                      tok.ast_link.literals.table.values()]
+
+    # Autocomplete Tuple_Type elements in checks
+    elif (trigger_char == "." and
+          isinstance(tok.ast_link, trlc.ast.Name_Reference) and
+          isinstance(tok.ast_link.typ, trlc.ast.Tuple_Type)):
+        label_list = [f"{value.name}" for value in
+                      tok.ast_link.typ.components.table.values()]
+
+    # Autocomplete Record_Reference
+    elif (trigger_char == " " and
+          tok.kind in "ASSIGN" and
+          isinstance(tok.ast_link, trlc.ast.Composite_Component) and
+          isinstance(tok.ast_link.n_typ, trlc.ast.Record_Type)):
+        pkg_name = tok.ast_link.n_typ.n_package.name
+        label_list = [f"{value.name}" for value in
+                      ls.symbols.table[pkg_name].symbols.table.values() if
+                      isinstance(value, trlc.ast.Record_Object)]
+
+    if label_list:
+        items = [CompletionItem(label=label_string) for
+                 label_string in label_list]
+
+    return CompletionList(is_incomplete=False, items=items)
+
+
 @trlc_server.feature(TEXT_DOCUMENT_TYPE_DEFINITION)
 def goto_type_definition(ls, params: TypeDefinitionParams):
     """
     Finds the location of the type definition for the identifier token at a
-    given curser position linked to an AST object of type Entity
-    
+    given cursor position linked to an AST object of type Entity
+
     Parameters:
     - ls: The language server instance.
-    - params: TypeDefinitionParams object containing the curser position and
+    - params: TypeDefinitionParams object containing the cursor position and
       the uri.
 
     Returns:
@@ -347,12 +445,12 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
       type definition is found or if the cursor position does not point to an
       identifier or this identifier is not linked to an AST entity.
     """
-    curser_line = params.position.line
-    curser_col  = params.position.character
+    cursor_line = params.position.line
+    cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
     tokens      = ls.all_files[file_path].lexer.tokens
-    cur_tok     = _get_token(tokens, curser_line, curser_col)
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col)
     ast_loc     = None
 
     # Exit condition: If there is no token at the cursor position
@@ -376,13 +474,13 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
 @trlc_server.feature(TEXT_DOCUMENT_REFERENCES)
 def references(ls, params: ReferenceParams):
     """
-    Finds all references for the identifier token at a given curser position
+    Finds all references for the identifier token at a given cursor position
     linked to identical AST objects of types Entity, Record_Reference,
     Name_Reference or Enumeration_Literal.
 
     Parameters:
     - ls: The language server instance.
-    - params: ReferenceParams object containing the curser position and the
+    - params: ReferenceParams object containing the cursor position and the
       uri.
 
     Returns:
@@ -391,14 +489,14 @@ def references(ls, params: ReferenceParams):
     """
     pars        = []
     locations   = []
-    curser_line = params.position.line
-    curser_col  = params.position.character
+    cursor_line = params.position.line
+    cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
     cur_pkg     = ls.all_files[file_path].cu.package
     imp_pkg     = ls.all_files[file_path].cu.imports
     tokens      = ls.all_files[file_path].lexer.tokens
-    cur_tok     = _get_token(tokens, curser_line, curser_col)
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col)
 
     # Exit condition: If there is no token at the cursor position
     # or the token lacks an ast_link.
@@ -442,12 +540,12 @@ def hover(ls, params: TextDocumentPositionParams):
     """
     Provides user defined description from Record_Type, Tuple_Type,
     Composite_Component, Enumeration_Type and Enumeration_Literal_Spec at the
-    identifier token at a given curser position associated with the described
+    identifier token at a given cursor position associated with the described
     AST object.
 
     Parameters:
     - ls: The language server instance.
-    - params: TextDocumentPositionParams object containing the curser position
+    - params: TextDocumentPositionParams object containing the cursor position
       and the uri.
 
     Returns:
@@ -457,12 +555,12 @@ def hover(ls, params: TextDocumentPositionParams):
       description.
     """
     desc        = None
-    curser_line = params.position.line
-    curser_col  = params.position.character
+    cursor_line = params.position.line
+    cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
     tokens      = ls.all_files[file_path].lexer.tokens
-    cur_tok     = _get_token(tokens, curser_line, curser_col)
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col)
 
     # Exit condition: If there is no token at the cursor position
     # or the token lacks an ast_link.
@@ -491,13 +589,13 @@ def hover(ls, params: TextDocumentPositionParams):
 def rename(ls, params: RenameParams):
     """
     Performs a rename action for a name that is not a Builtin_Type or
-    Builtin_Function at a given curser position. The renaming is only allowed
+    Builtin_Function at a given cursor position. The renaming is only allowed
     if all files in the workspace are syntactically valid TRLC. Renaming is
     only available if parsing is set to 'full'.
 
     Parameters:
     - ls: The language server instance.
-    - params: RenameParams object containing the curser position and the uri.
+    - params: RenameParams object containing the cursor position and the uri.
 
     Returns:
     - WorkspaceEdit: A WorkspaceEdit object containing the changes to be made.
@@ -506,13 +604,13 @@ def rename(ls, params: RenameParams):
     """
 
     # Get information from the params
-    curser_line         = params.position.line
-    curser_col          = params.position.character
+    cursor_line         = params.position.line
+    cursor_col          = params.position.character
     uri                 = params.text_document.uri
     file_path           = _get_path(uri)
     cur_tok             = _get_token(ls.all_files[file_path].lexer.tokens,
-                                     curser_line,
-                                     curser_col)
+                                     cursor_line,
+                                     cursor_col)
     new_text            = params.new_name
 
     # Data structures to track locations for renaming
@@ -531,7 +629,7 @@ def rename(ls, params: RenameParams):
         return WorkspaceEdit(document_changes=files_changes)
 
     # Exit if the current token is not legitimate for renaming
-    if(cur_tok is None or
+    if (cur_tok is None or
             cur_tok.kind != "IDENTIFIER" or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
@@ -561,13 +659,12 @@ def rename(ls, params: RenameParams):
             else:
                 file_changes_by_uri[loc.uri].append(TextEdit(range=loc.range,
                                                              new_text=new_text)
-                                                             )
+                                                    )
 
     # Create TextDocumentEdit objects for each URI and its renaming locations
     for uri, file_changes in file_changes_by_uri.items():
         files_changes.append(TextDocumentEdit(
-                                OptionalVersionedTextDocumentIdentifier(uri),
-                                file_changes))
+            OptionalVersionedTextDocumentIdentifier(uri), file_changes))
 
     return WorkspaceEdit(document_changes=files_changes)
 

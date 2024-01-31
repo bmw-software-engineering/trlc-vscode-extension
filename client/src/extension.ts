@@ -82,7 +82,7 @@ function startLangServer(
 export function activate(context: ExtensionContext): void {
     if (context.extensionMode === ExtensionMode.Development) {
         const cwd = path.join(__dirname, "..", "..");
-        console.log("Hiasdfasdfasdf");
+        console.log("Activate server");
         const pythonPath = workspace
             .getConfiguration("python")
             .get<string>("defaultInterpreterPath");
