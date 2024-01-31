@@ -349,10 +349,9 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
 def completion(ls, params: CompletionParams):
     """
     Gets completion items at a given cursor position for Package, Components of
-    Record_Type, Enumeration_Literal, Tuple_Type in checks and Record_Reference
-    when specific trigger characters appear. For the functionality to work
-    correctly, there should be at least two spaces before any character appears
-    on the line behind the cursor.
+    Record_Type, qualified Record_Type, Enumeration_Literal, Tuple_Type
+    components in checks and Record_Reference when specific trigger characters
+    appear.
 
     Parameters:
     - ls: The language server instance.
@@ -405,7 +404,7 @@ def completion(ls, params: CompletionParams):
         label_list = [f"{value.name}" for value in
                       tok.ast_link.literals.table.values()]
 
-    # Autocomplete Tuple_Type elements in checks
+    # Autocomplete Tuple_Type components in checks
     elif (trigger_char == "." and
           isinstance(tok.ast_link, trlc.ast.Name_Reference) and
           isinstance(tok.ast_link.typ, trlc.ast.Tuple_Type)):
