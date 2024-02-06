@@ -1,8 +1,5 @@
 # TRLC visual studio code extension
 
-**Note: This extension is work in progress and is not yet fit for
-general use.**
-
 `trlc-vscode` is a visual studio code extension that provides editing
 features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
@@ -67,4 +64,4 @@ Aktiengesellschaft (BMW AG).
 Parts of the extension are derived from the samples provided by
 [pygls](https://pypi.org/project/pygls) (licensed under the Apache 2.0
 license) and the Microsoft Corporation (also licensed under the Apache
-2.0 licene).
+2.0 license).
