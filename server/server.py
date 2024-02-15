@@ -142,7 +142,10 @@ class TrlcLanguageServer(LanguageServer):
 
         vsm.process()
         self.symbols = vsm.stab
-        self.all_files = vsm.all_files
+        self.all_files = {
+            key.replace('\\', '/'): value
+            for key, value in vsm.all_files.items()
+        }
 
         if self.workspace.documents:
             for uri in self.diagnostic_history:
