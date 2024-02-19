@@ -188,7 +188,7 @@ def _get_path(uri):
     return path
 
 
-def _get_token(tokens, cursor_line, cursor_col, greedy=False):
+def _get_token(tokens, cursor_line, cursor_col, greedy=False, tok_pre=0):
     """
     Get the token located at the specified cursor position.
 
@@ -198,6 +198,7 @@ def _get_token(tokens, cursor_line, cursor_col, greedy=False):
     - cursor_col (int): The column number of the cursor position.
     - greedy: (bool): Takes the previous token if there is no match for the
       current cursor_col. Takes place when cursor_col refers to whitespace.
+    - tok_pre (int): The token itself if 0 or any previous token
 
     Returns:
     - Token or None: The token found at the cursor position,
@@ -211,7 +212,9 @@ def _get_token(tokens, cursor_line, cursor_col, greedy=False):
             if (tok_rng.start.character <= cursor_col <
                     tok_rng.end.character and
                     tok_rng.start.line <= cursor_line <= tok_rng.end.line):
-                tok = token
+                tok_in = tokens.index(token) - tok_pre
+                if 0 <= tok_in < len(tokens):
+                    tok = tokens[tok_in]
                 break
         if cursor_col > 0 and greedy and tok is None:
             cursor_col -= 1
@@ -372,6 +375,8 @@ def completion(ls, params: CompletionParams):
     cur_pkg      = ls.all_files[file_path].cu.package
     tokens       = ls.all_files[file_path].lexer.tokens
     tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
+    pre_tok      = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True,
+                              tok_pre=1)
     label_list   = None
     items        = []
 
@@ -395,6 +400,15 @@ def completion(ls, params: CompletionParams):
                                else "" for c_name, value in
                                tok.ast_link.n_typ.components.table.items()]) +
                       "\n"]
+
+    # Autocomplete qualified names of Enumeration_Type
+    elif (trigger_char == "." and
+          isinstance(tok.ast_link, trlc.ast.Package) and
+          isinstance(pre_tok.ast_link, trlc.ast.Composite_Component) and
+          isinstance(pre_tok.ast_link.n_typ, trlc.ast.Enumeration_Type)):
+        enu = pre_tok.ast_link.n_typ
+        label_list = [f"{enu.name}.{value.name}" for value in
+                      enu.literals.table.values()]
 
     # Autocomplete qualified names of Record_Types
     elif trigger_char == "." and isinstance(tok.ast_link, trlc.ast.Package):
