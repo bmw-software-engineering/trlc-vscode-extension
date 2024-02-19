@@ -369,6 +369,7 @@ def completion(ls, params: CompletionParams):
     uri          = params.text_document.uri
     trigger_char = params.context.trigger_character
     file_path    = _get_path(uri)
+    cur_pkg      = ls.all_files[file_path].cu.package
     tokens       = ls.all_files[file_path].lexer.tokens
     tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
     label_list   = None
@@ -400,6 +401,18 @@ def completion(ls, params: CompletionParams):
         label_list = [f"{value.name}" for value in
                       tok.ast_link.symbols.table.values() if not
                       isinstance(value, trlc.ast.Record_Object)]
+
+    # Autocomplete Enumeration_Type
+    elif (trigger_char == " " and
+          tok.kind in "ASSIGN" and
+          isinstance(tok.ast_link, trlc.ast.Composite_Component) and
+          isinstance(tok.ast_link.n_typ, trlc.ast.Enumeration_Type)):
+        enu = tok.ast_link.n_typ
+        en_pkg = enu.n_package.name
+        label_list = [
+            f"{en_pkg}.{enu.name}.{value.name}" if en_pkg != cur_pkg.name else
+            f"{enu.name}.{value.name}" for value in enu.literals.table.values()
+        ]
 
     # Autocomplete Enumeration_Literal
     elif (trigger_char == "." and
