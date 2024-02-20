@@ -479,7 +479,7 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
     tokens      = ls.all_files[file_path].lexer.tokens
-    cur_tok     = _get_token(tokens, cursor_line, cursor_col)
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
     ast_loc     = None
 
     # Exit condition: If there is no token at the cursor position
@@ -487,7 +487,7 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     # We specifically consider only identifiers, excluding Builtins.
     if (cur_tok is None or
             cur_tok.ast_link is None or
-            cur_tok.kind != "IDENTIFIER" or
+            cur_tok.kind not in ("IDENTIFIER", "DOT") or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
         return None
@@ -525,14 +525,14 @@ def references(ls, params: ReferenceParams):
     cur_pkg     = ls.all_files[file_path].cu.package
     imp_pkg     = ls.all_files[file_path].cu.imports
     tokens      = ls.all_files[file_path].lexer.tokens
-    cur_tok     = _get_token(tokens, cursor_line, cursor_col)
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
 
     # Exit condition: If there is no token at the cursor position
     # or the token lacks an ast_link.
     # We specifically consider only identifiers, excluding Builtins.
     if (cur_tok is None or
             cur_tok.ast_link is None or
-            cur_tok.kind != "IDENTIFIER" or
+            cur_tok.kind not in ("IDENTIFIER", "DOT") or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
         return None
@@ -639,7 +639,8 @@ def rename(ls, params: RenameParams):
     file_path           = _get_path(uri)
     cur_tok             = _get_token(ls.all_files[file_path].lexer.tokens,
                                      cursor_line,
-                                     cursor_col)
+                                     cursor_col,
+                                     greedy=True)
     new_text            = params.new_name
 
     # Data structures to track locations for renaming
@@ -659,7 +660,7 @@ def rename(ls, params: RenameParams):
 
     # Exit if the current token is not legitimate for renaming
     if (cur_tok is None or
-            cur_tok.kind != "IDENTIFIER" or
+            cur_tok.kind not in ("IDENTIFIER", "DOT") or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
         ls.show_message("Only names can be renamed excluding builtins.")
