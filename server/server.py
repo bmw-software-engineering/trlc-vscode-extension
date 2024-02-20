@@ -29,7 +29,6 @@ import urllib.parse
 
 import trlc.lexer
 import trlc.errors
-import trlc.lexer
 
 from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
