@@ -5,6 +5,35 @@ features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
+
+## Usage
+
+This extension offers `partial` and `full` parsing of **TRLC** files.
+In `partial` mode, only a subset of files within the current workspace or
+folder is parsed — specifically, the ones you have opened in your editor. On
+the other hand, in `full` mode, the entire workspace or folder is parsed,
+resulting in a longer processing time.
+
+### How to switch from partial (default) to full parsing.
+
+1. Open the Settings either through the gear icon or through the menu:
+   - On Windows/Linux, go to `File > Preferences > Settings`.
+   - On macOS, go to `Code > Preferences > Settings`.
+
+2. Search for `trlc` using the search bar at the top.
+
+3. Modify the setting `Trlc Server: Parsing` and enter either **full** or
+**partial**
+
+4. Close the Settings, there is no need for saving.
+
+5. Press any key on the keyboard in any TRLC file and the updated settings will
+take effect.
+
+Note: The last step is necessary as Visual Studio Code applies the setting only
+when a change is made in a file.
+
+
 ## Dependencies
 
 1. Install [Python](https://www.python.org/downloads/) >= 3.8.
@@ -50,10 +79,6 @@ for TRLC files. Get more information about
 3. Open debug view (ctrl + shift + D).
 4. Select Server + Client and press F5.
 
-
-## Usage
-
-Comming soon.
 
 ## Copyright and License
 
