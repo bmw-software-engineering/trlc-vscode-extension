@@ -128,6 +128,8 @@ class TrlcLanguageServer(LanguageServer):
 
         for folder_uri in self.workspace.folders.keys():
             folder_path = _get_path(folder_uri)
+            if not os.path.exists(folder_path):
+                continue
 
             if self.parse_partial is True:
                 vsm.register_include(folder_path)
