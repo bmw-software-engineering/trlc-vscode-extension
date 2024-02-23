@@ -373,13 +373,19 @@ def completion(ls, params: CompletionParams):
     uri          = params.text_document.uri
     trigger_char = params.context.trigger_character
     file_path    = _get_path(uri)
-    cur_pkg      = ls.all_files[file_path].cu.package
-    tokens       = ls.all_files[file_path].lexer.tokens
+    items        = []
+
+    try:
+        cur_pkg  = ls.all_files[file_path].cu.package
+        tokens   = ls.all_files[file_path].lexer.tokens
+    except KeyError:
+        ls.show_message("Please wait for first parsing")
+        return CompletionList(is_incomplete=False, items=items)
+
     tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
     pre_tok      = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True,
                               tok_pre=1)
     label_list   = None
-    items        = []
 
     # Populate label_list with package names if the trigger character is a
     # space and the token value is either 'package' or 'import'.
@@ -479,7 +485,13 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
-    tokens      = ls.all_files[file_path].lexer.tokens
+
+    try:
+        tokens  = ls.all_files[file_path].lexer.tokens
+    except KeyError:
+        ls.show_message("Please wait for first parsing")
+        return None
+
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
     ast_loc     = None
 
@@ -523,9 +535,15 @@ def references(ls, params: ReferenceParams):
     cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
-    cur_pkg     = ls.all_files[file_path].cu.package
-    imp_pkg     = ls.all_files[file_path].cu.imports
-    tokens      = ls.all_files[file_path].lexer.tokens
+
+    try:
+        cur_pkg = ls.all_files[file_path].cu.package
+        imp_pkg = ls.all_files[file_path].cu.imports
+        tokens  = ls.all_files[file_path].lexer.tokens
+    except KeyError:
+        ls.show_message("Please wait for first parsing")
+        return None
+
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
 
     # Exit condition: If there is no token at the cursor position
@@ -589,7 +607,13 @@ def hover(ls, params: TextDocumentPositionParams):
     cursor_col  = params.position.character
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
-    tokens      = ls.all_files[file_path].lexer.tokens
+
+    try:
+        tokens  = ls.all_files[file_path].lexer.tokens
+    except KeyError:
+        ls.show_message("Please wait for first parsing")
+        return None
+
     cur_tok     = _get_token(tokens, cursor_line, cursor_col)
 
     # Exit condition: If there is no token at the cursor position
@@ -634,15 +658,19 @@ def rename(ls, params: RenameParams):
     """
 
     # Get information from the params
-    cursor_line         = params.position.line
-    cursor_col          = params.position.character
-    uri                 = params.text_document.uri
-    file_path           = _get_path(uri)
-    cur_tok             = _get_token(ls.all_files[file_path].lexer.tokens,
-                                     cursor_line,
-                                     cursor_col,
-                                     greedy=True)
-    new_text            = params.new_name
+    cursor_line = params.position.line
+    cursor_col  = params.position.character
+    uri         = params.text_document.uri
+    file_path   = _get_path(uri)
+
+    try:
+        tokens  = ls.all_files[file_path].lexer.tokens
+    except KeyError:
+        ls.show_message("Please wait for first parsing")
+        return None
+
+    cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
+    new_text    = params.new_name
 
     # Data structures to track locations for renaming
     file_changes        = []
