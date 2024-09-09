@@ -133,7 +133,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
             throw new Error("`python.pythonPath` is not set");
         }
 
-        client = startLangServer(pythonPath, ["-m", "server"], cwd);
+        client = startLangServer(pythonPath, ["-O", "-m", "server"], cwd);
     }
 
     context.subscriptions.push(client.start());
