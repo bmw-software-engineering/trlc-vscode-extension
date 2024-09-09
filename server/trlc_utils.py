@@ -18,7 +18,6 @@
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 
-import sys
 import os
 import urllib.parse
 import uuid
@@ -44,33 +43,6 @@ kind_to_severity_mapping = {
     Kind.USER_ERROR: DiagnosticSeverity.Error,
     Kind.USER_WARNING: DiagnosticSeverity.Warning
 }
-
-try:
-    # pylint: disable=unused-import
-    import cvc5
-    HAS_CVC5_API = True
-except ImportError:
-    HAS_CVC5_API = False
-
-if HAS_CVC5_API:
-    USE_VERIFY  = True
-    CVC5_BINARY = None
-elif sys.platform.startswith("win32"):
-    USE_VERIFY  = True
-    CVC5_BINARY = "bin/cvc5-Win64.exe"
-elif sys.platform.startswith("darwin"):
-    USE_VERIFY  = True
-    CVC5_BINARY = "bin/cvc5-macOS"
-elif sys.platform.startswith("linux"):
-    USE_VERIFY  = True
-    CVC5_BINARY = "bin/cvc5-Linux"
-else:
-    USE_VERIFY  = False
-    CVC5_BINARY = None
-
-if CVC5_BINARY is not None:
-    if not os.path.exists(CVC5_BINARY):
-        USE_VERIFY = False
 
 
 class Vscode_Message_Handler(Message_Handler):
@@ -129,8 +101,7 @@ class Vscode_Source_Manager(Source_Manager):
 
     def __init__(self, mh, fh, ls):
         super().__init__(mh          = mh,
-                         verify_mode = USE_VERIFY,
-                         cvc5_binary = CVC5_BINARY)
+                         verify_mode = True)
         self.fh       = fh
         self.progress = ls.progress
         self.ptoken   = None

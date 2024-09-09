@@ -1,3 +1,6 @@
+# VS Code
+.vscode
+
 # Artefacts
 *.vsix
 *.log
@@ -14,4 +17,6 @@ client/out
 
 # Python
 __pycache__/
+python-deps/
 *.py[cod]
+.jython_cache/

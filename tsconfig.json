@@ -2,7 +2,9 @@
     "compilerOptions": {
         "module": "commonjs",
         "target": "ES2020",
-        "lib": ["ES2020"],
+        "lib": [
+            "ES2020"
+        ],
         "sourceMap": true,
         "rootDir": "client/src",
         "outDir": "client/out",
@@ -10,5 +12,8 @@
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
         "noUnusedParameters": true
-    }
+    },
+    "exclude": [
+        "node_modules"
+    ]
 }

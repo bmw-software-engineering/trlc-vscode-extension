@@ -25,37 +25,12 @@ jobs:
           node-version: 18
       - name: "Install dependencies"
         run: |
-          python -m pip install --upgrade pip
-          npm install -g @vscode/vsce
-      - name: Fetch CVC5 (OSX)
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: "cvc5/cvc5"
-          tag: "cvc5-1.0.8"
-          fileName: "cvc5-macOS"
-          out-file-path: "bin"
-      - name: Fetch CVC5 (Windows)
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: "cvc5/cvc5"
-          tag: "cvc5-1.0.8"
-          fileName: "cvc5-Win64.exe"
-          out-file-path: "bin"
-      - name: Fetch CVC5 (Linux)
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: "cvc5/cvc5"
-          tag: "cvc5-1.0.8"
-          fileName: "cvc5-Linux"
-          out-file-path: "bin"
-      - name: Set permissions
-        run: |
-          chmod +x bin/*
+          python3 -m pip install --upgrade pip
+          make install-python-deps
+          npm install
       - name: "Build package"
         run: |
-          python -m pip install --target python-deps --isolated -I --platform any --only-binary :all: -r requirements.txt
-          npm install @vscode/vsce
-          vsce package
+          npx vsce package
       - name: "Archive package"
         uses: actions/upload-artifact@v3
         with:
