@@ -22,19 +22,11 @@ import os
 import urllib.parse
 import uuid
 
-from trlc.errors import Message_Handler, TRLC_Error, Kind
+from lsprotocol.types import (Diagnostic, DiagnosticSeverity, Position, Range,
+                              WorkDoneProgressBegin, WorkDoneProgressEnd,
+                              WorkDoneProgressReport)
+from trlc.errors import Kind, Message_Handler, TRLC_Error
 from trlc.trlc import Source_Manager
-
-from lsprotocol.types import (
-    Diagnostic,
-    Position,
-    Range,
-    DiagnosticSeverity,
-    WorkDoneProgressBegin,
-    WorkDoneProgressEnd,
-    WorkDoneProgressReport,
-)
-
 
 kind_to_severity_mapping = {
     Kind.SYS_ERROR: DiagnosticSeverity.Error,

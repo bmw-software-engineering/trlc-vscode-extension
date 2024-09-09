@@ -27,56 +27,36 @@ import sys
 import threading
 import urllib.parse
 
-import trlc.lexer
 import trlc.errors
-
-from lsprotocol.types import (
-    TEXT_DOCUMENT_COMPLETION,
-    TEXT_DOCUMENT_DID_CHANGE,
-    TEXT_DOCUMENT_DID_CLOSE,
-    TEXT_DOCUMENT_DID_OPEN,
-    TEXT_DOCUMENT_HOVER,
-    TEXT_DOCUMENT_REFERENCES,
-    TEXT_DOCUMENT_RENAME,
-    TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
-    TEXT_DOCUMENT_TYPE_DEFINITION,
-    WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
-    CompletionItem,
-    CompletionList,
-    CompletionOptions,
-    CompletionParams,
-    ConfigurationItem,
-    DidChangeTextDocumentParams,
-    DidChangeWorkspaceFoldersParams,
-    DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams,
-    Hover,
-    Location,
-    OptionalVersionedTextDocumentIdentifier,
-    Position,
-    Range,
-    ReferenceParams,
-    RenameParams,
-    SemanticTokens,
-    SemanticTokensLegend,
-    SemanticTokensParams,
-    TextDocumentEdit,
-    TextDocumentPositionParams,
-    TextEdit,
-    TypeDefinitionParams,
-    WorkspaceConfigurationParams,
-    WorkspaceEdit,
-)
+import trlc.lexer
+from lsprotocol.types import (TEXT_DOCUMENT_COMPLETION,
+                              TEXT_DOCUMENT_DID_CHANGE,
+                              TEXT_DOCUMENT_DID_CLOSE, TEXT_DOCUMENT_DID_OPEN,
+                              TEXT_DOCUMENT_HOVER, TEXT_DOCUMENT_REFERENCES,
+                              TEXT_DOCUMENT_RENAME,
+                              TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
+                              TEXT_DOCUMENT_TYPE_DEFINITION,
+                              WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
+                              CompletionItem, CompletionList,
+                              CompletionOptions, CompletionParams,
+                              ConfigurationItem, DidChangeTextDocumentParams,
+                              DidChangeWorkspaceFoldersParams,
+                              DidCloseTextDocumentParams,
+                              DidOpenTextDocumentParams, Hover, Location,
+                              OptionalVersionedTextDocumentIdentifier,
+                              Position, Range, ReferenceParams, RenameParams,
+                              SemanticTokens, SemanticTokensLegend,
+                              SemanticTokensParams, TextDocumentEdit,
+                              TextDocumentPositionParams, TextEdit,
+                              TypeDefinitionParams,
+                              WorkspaceConfigurationParams, WorkspaceEdit)
 from pygls.server import LanguageServer
 
-from .trlc_utils import (
-    File_Handler,
-    Vscode_Message_Handler,
-    Vscode_Source_Manager,
-)
+from .trlc_utils import (File_Handler, Vscode_Message_Handler,
+                         Vscode_Source_Manager)
 
-
-logger = logging.getLogger()
+LOGGER = logging.getLogger()
+WAIT_PARSING = "TRLC: Please wait for parsing to finish"
 
 
 class TrlcValidator(threading.Thread):
@@ -154,7 +134,7 @@ class TrlcLanguageServer(LanguageServer):
         for uri, diagnostics in vmh.diagnostics.items():
             self.publish_diagnostics(uri, diagnostics)
         self.diagnostic_history = vmh.diagnostics
-        self.show_message_log("Diagnostics published")
+        self.show_message_log("TRLC: Diagnostics published")
 
     def queue_event(self, kind, uri=None, content=None):
         with self.queue_lock:
@@ -282,7 +262,6 @@ trlc_server = TrlcLanguageServer("pygls-trlc", "v0.1")
 @trlc_server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)
 def on_workspace_folders_change(ls, _: DidChangeWorkspaceFoldersParams):
     """Workspace folders did change notification."""
-    ls.show_message("Workspace folder did change!")
     ls.queue_event("reparse")
 
 
@@ -304,7 +283,7 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
         elif parsing == "partial":
             ls.parse_partial = True
     except Exception:  # pylint: disable=W0718
-        logger.error("Unable to get workspace configuration", exc_info=True)
+        LOGGER.error("TRLC: Unable to get workspace configuration", exc_info=True)
 
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
@@ -343,7 +322,7 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
         elif parsing == "partial":
             ls.parse_partial = True
     except Exception:  # pylint: disable=W0718
-        logger.error("Unable to get workspace configuration", exc_info=True)
+        LOGGER.error("TRLC: Unable to get workspace configuration", exc_info=True)
 
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
@@ -379,7 +358,7 @@ def completion(ls, params: CompletionParams):
         cur_pkg  = ls.all_files[file_path].cu.package
         tokens   = ls.all_files[file_path].lexer.tokens
     except KeyError:
-        ls.show_message("Please wait for first parsing")
+        ls.show_message(WAIT_PARSING)
         return CompletionList(is_incomplete=False, items=items)
 
     tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
@@ -489,7 +468,7 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     try:
         tokens  = ls.all_files[file_path].lexer.tokens
     except KeyError:
-        ls.show_message("Please wait for first parsing")
+        ls.show_message(WAIT_PARSING)
         return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
@@ -541,7 +520,7 @@ def references(ls, params: ReferenceParams):
         imp_pkg = ls.all_files[file_path].cu.imports
         tokens  = ls.all_files[file_path].lexer.tokens
     except KeyError:
-        ls.show_message("Please wait for first parsing")
+        ls.show_message(WAIT_PARSING)
         return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
@@ -611,7 +590,7 @@ def hover(ls, params: TextDocumentPositionParams):
     try:
         tokens  = ls.all_files[file_path].lexer.tokens
     except KeyError:
-        ls.show_message("Please wait for first parsing")
+        ls.show_message(WAIT_PARSING)
         return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col)
@@ -666,7 +645,7 @@ def rename(ls, params: RenameParams):
     try:
         tokens  = ls.all_files[file_path].lexer.tokens
     except KeyError:
-        ls.show_message("Please wait for first parsing")
+        ls.show_message(WAIT_PARSING)
         return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
@@ -683,7 +662,7 @@ def rename(ls, params: RenameParams):
     # Exit if parsing is set to partial or not set at all, as the default is
     # partial parsing.
     if ls.parse_partial is True:
-        ls.show_message("Rename symbol is only available if parsing is set to \
+        ls.show_message("TRLC: Rename symbol is only available if parsing is set to \
                         'full'.")
         return WorkspaceEdit(document_changes=files_changes)
 
@@ -692,7 +671,7 @@ def rename(ls, params: RenameParams):
             cur_tok.kind not in ("IDENTIFIER", "DOT") or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
-        ls.show_message("Only names can be renamed excluding builtins.")
+        ls.show_message("TRLC: Only names can be renamed excluding builtins.")
         return WorkspaceEdit(document_changes=files_changes)
 
     # Check if there are any errors in TRLC
@@ -702,7 +681,7 @@ def rename(ls, params: RenameParams):
 
     # Prompt the user if errors are detected and exit with no changes made
     if not is_valid:
-        ls.show_message("Resolve errors or undo if errors occurred after \
+        ls.show_message("TRLC: Resolve errors or undo if errors occurred after \
                         renaming.")
         return WorkspaceEdit(document_changes=files_changes)
 
