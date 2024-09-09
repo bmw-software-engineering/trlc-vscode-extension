@@ -7,8 +7,12 @@
             "type": "extensionHost",
             "request": "launch",
             "runtimeExecutable": "${execPath}",
-            "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
-            "outFiles": ["${workspaceRoot}/client/out/**/*.js"],
+            "args": [
+                "--extensionDevelopmentPath=${workspaceRoot}"
+            ],
+            "outFiles": [
+                "${workspaceRoot}/client/out/**/*.js"
+            ],
             "preLaunchTask": {
                 "type": "npm",
                 "script": "compile"
@@ -19,10 +23,12 @@
         },
         {
             "name": "Launch Server",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "server",
-            "args": ["--tcp"],
+            "args": [
+                "--tcp"
+            ],
             "justMyCode": false,
             "python": "${command:python.interpreterPath}",
             "cwd": "${workspaceFolder}",
@@ -32,10 +38,12 @@
         },
         {
             "name": "Launch Server [WebSockets]",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "module": "server",
-            "args": ["--ws"],
+            "args": [
+                "--ws"
+            ],
             "justMyCode": false,
             "python": "${command:python.interpreterPath}",
             "cwd": "${workspaceFolder}",
@@ -45,7 +53,7 @@
         },
         {
             "name": "Python debug server attached",
-            "type": "python",
+            "type": "debugpy",
             "request": "attach",
             "listen": {
                 "host": "localhost",
