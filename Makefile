@@ -8,11 +8,14 @@ style:
 	@python3 -m pycodestyle server
 
 build:
-	npm install @vscode/vsce
-	vsce package
+	npm install
+	npx vsce package
+
+install-python-deps:
+	@python3 -m pip install --target python-deps --isolated -I --platform any --only-binary :all: -r requirements.txt
 
 install: build
-	-code --uninstall-extension "bmw-group.trlc-vscode-extension"
+	code --uninstall-extension "bmw-group.trlc-vscode-extension"
 	code --install-extension trlc-vscode-extension-*.vsix
 
 install-link: install

@@ -9,4 +9,16 @@ package.json
 package-lock.json
 .pytest_cache
 Makefile
+pylint3.cfg
+setup.cfg
 requirements.txt
+Pipfile
+Pipfile.lock
+.github/
+.jython_cache/
+*.log
+server/__pycache__/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

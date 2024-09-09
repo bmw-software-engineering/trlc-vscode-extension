@@ -18,7 +18,6 @@
  * ----------------------------------------------------------------------- */
 "use strict";
 
-import * as net from "net";
 import * as path from "path";
 import { ExtensionContext, ExtensionMode, workspace } from "vscode";
 import {
@@ -45,26 +44,6 @@ function getClientOptions(): LanguageClientOptions {
     };
 }
 
-function startLangServerTCP(addr: number): LanguageClient {
-    const serverOptions: ServerOptions = () => {
-        return new Promise((resolve /*, reject */) => {
-            const clientSocket = new net.Socket();
-            clientSocket.connect(addr, "127.0.0.1", () => {
-                resolve({
-                    reader: clientSocket,
-                    writer: clientSocket,
-                });
-            });
-        });
-    };
-
-    return new LanguageClient(
-        `tcp lang server (port ${addr})`,
-        serverOptions,
-        getClientOptions()
-    );
-}
-
 function startLangServer(
     command: string,
     args: string[],
@@ -79,7 +58,55 @@ function startLangServer(
     return new LanguageClient(command, serverOptions, getClientOptions());
 }
 
-export function activate(context: ExtensionContext): void {
+import { exec } from 'child_process';
+
+async function setup(context: ExtensionContext): Promise<void> {
+    const isSetupDone = context.workspaceState.get<boolean>('setupDone', false);
+
+    const targetDirectory = path.join(context.extensionPath, 'python-deps');
+
+    if (!isSetupDone) {
+        console.log("Running setup script...");
+        try {
+            await installPythonPackage(targetDirectory, 'cvc5==1.2.0');
+            await context.workspaceState.update('setupDone', true);
+        } catch (error) {
+            console.error("Setup failed during package installation of CVC5", error);
+        }
+    }
+}
+
+function installPythonPackage(targetDirectory: string, packageName: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const pipCommand = process.platform === 'win32' ? 'python -m pip' : 'python3 -m pip';
+        const command = `${pipCommand} install --target ${targetDirectory} ${packageName}`;
+
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error installing package: ${stderr}`);
+                reject(error);
+            } else {
+                console.log(`Package installed successfully: ${stdout}`);
+                resolve(stdout);
+            }
+        });
+    });
+}
+import { commands } from 'vscode';
+export async function activate(context: ExtensionContext): Promise<void> {
+    context.subscriptions.push(
+        commands.registerCommand('extension.resetState', async () => {
+            await context.workspaceState.update('setupDone', undefined);
+            console.log("State has been reset.");
+        })
+    )
+    try {
+        await setup(context);
+        console.log("Setup completed successfully.");
+    } catch (error) {
+        console.error("Setup failed.", error);
+    }
+
     if (context.extensionMode === ExtensionMode.Development) {
         const cwd = path.join(__dirname, "..", "..");
         console.log("Activate server");

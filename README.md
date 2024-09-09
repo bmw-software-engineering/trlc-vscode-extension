@@ -5,16 +5,22 @@ features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
+## Installation
 
-## Usage
+1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
+2. Download and Install [VSCode](https://code.visualstudio.com/download).
+3. Press `F1` in VSCode, type `Extensions: Install from VSIX...` and install the extension.
+4. Go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
+
+**IF** you are reinstalling the extension. Make sure to use command: `TRLC: Reset CVC5 Setup` once.
+
+## How to switch from partial (default) to full parsing.
 
 This extension offers `partial` and `full` parsing of **TRLC** files.
 In `partial` mode, only a subset of files within the current workspace or
 folder is parsed — specifically, the ones you have opened in your editor. On
 the other hand, in `full` mode, the entire workspace or folder is parsed,
 resulting in a longer processing time.
-
-### How to switch from partial (default) to full parsing.
 
 1. Open the Settings either through the gear icon or through the menu:
    - On Windows/Linux, go to `File > Preferences > Settings`.
@@ -25,30 +31,30 @@ resulting in a longer processing time.
 3. Modify the setting `Trlc Server: Parsing` and enter either **full** or
 **partial**
 
-4. Close the Settings, there is no need for saving.
+1. Close the Settings, there is no need for saving.
 
-5. Press any key on the keyboard in any TRLC file and the updated settings will
+2. Press any key on the keyboard in any TRLC file and the updated settings will
 take effect.
 
-Note: The last step is necessary as Visual Studio Code applies the setting only
+**Note:** The last step is necessary as Visual Studio Code applies the setting only
 when a change is made in a file.
 
+## Development
 
-## Dependencies
+### Dependencies
 
-1. Install [Python](https://www.python.org/downloads/) >= 3.8.
-2. Download and Install [VSCode](https://code.visualstudio.com/download).
-3. Create `.vscode/settings.json` file and set
-   `python.defaultInterpreterPath` to point to your python
-   installation.
+The extension has three dependencies:  
+1. [pygls](https://pypi.org/project/pygls) - A Python Language Server implementation for the Language Server Protocol. -> bundled into the extension.
+2. [TRLC](https://github.com/bmw-software-engineering/trlc) - A tool for the formal verification of requirements. -> bundled into the extension.
+3. [CVC5](https://cvc5.github.io) - An open-source automatic theorem prover for SMT theories. -> will be installed automatically after the extension is installed. When reinstalling the extension, use the command `TRLC: Reset CVC5 Setup` to reinstall CVC5 (reason why it is not bundled: there are different versions for different operating systems).
 
-## Build from source
+### Build from source
 
-1. Use the package manager [pip](https://pip.pypa.io/en/stable/) to
+1. Use [make](https://www.gnu.org/software/make/) to
    install required python packages.
 
    ```bash
-   pip install -r requirements.txt
+   make install-python-deps
    ```
 
 2. Make sure you have `Node.js` installed. You will likely need to
@@ -59,20 +65,18 @@ when a change is made in a file.
    apt-get install -y nodejs
    ```
 
-   Then install `vsce` by running:
+3. Then use [make](https://www.gnu.org/software/make/) again to build the extension.
 
    ```bash
-   npm install -g @vscode/vsce
+   make build
    ```
-
-3. Use `vsce` to package the extension:
-
+   **OR**
    ```bash
-   cd ./trlc-new-vscode-plugin
-   vsce package
+   make install
    ```
+   to build and automatically install the extension.
 
-## Run extension in debugger mode
+### Run extension in debugger mode
 
 1. Open the source code in VS Code.
 2. Run `npm install` in this folder.
