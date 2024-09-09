@@ -1,65 +1,69 @@
 {
-    "scopeName": "source.trlc",
-    "fileTypes": ["rsl", "check", "trlc"],
-    "patterns": [
-	{
-            "match": "//.*",
-            "name": "comment.line.double-slash"
-        },
-	{
-	    "begin": "/\\*",
-	    "end": "\\*/",
-	    "name": "comment.block"
-	},
-	{
-	    "begin": "\"\"\"",
-	    "end": "\"\"\"",
-	    "name": "string.quoted.triple"
-	},
-	{
-	    "begin": "'''",
-	    "end": "'''",
-	    "name": "string.quoted.triple"
-	},
-	{
-	    "match": "\"([^\"\\n]|(\\\"))*\"",
-	    "name": "string.quoted.double"
-	},
-	{
-	    "name" : "keyword.control.trlc",
-	    "match" : "\\b(checks|else|elsif|enum|error|extends|fatal|if|import|package|section|separator|then|tuple|type|warning)\\b"
-	},
-	{
-	    "name" : "keyword.trlc",
-	    "match" : "\\b(abs|and|exists|false|forall|implies|in|not|null|or|true|xor)\\b"
-	},
-	{
-	    "name" : "storage.modifier",
-	    "match" : "\\b(abstract|final|freeze|optional)\\b"
-	},
-	{
-	    "name" : "entity.name.type",
-	    "match" : "\\b(Boolean|Integer|Decimal|String|Markup_String)\\b"
-	},
-	{
-	    "name" : "entity.name.function",
-	    "match" : "\\b(len|startswith|endswith|matches)\\b"
-	},
-	{
-	    "name" : "constant.numeric",
-	    "match" : "0x[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
-	},
-	{
-	    "name" : "constant.numeric",
-	    "match" : "[0-9]+(_[0-9]+)*"
-	},
-	{
-	    "name" : "constant.numeric",
-	    "match" : "0b[01]+(_[01]+)*"
-	},
-	{
-	    "name" : "constant.numeric",
-	    "match" : "[0-9]+(_[0-9]+)*\\.[0-9]+(_[0-9]+)*"
+	"scopeName": "source.trlc",
+	"fileTypes": [
+		"rsl",
+		"check",
+		"trlc"
+	],
+	"patterns": [
+		{
+			"match": "//.*",
+			"name": "comment.line.double-slash"
+		},
+		{
+			"begin": "/\\*",
+			"end": "\\*/",
+			"name": "comment.block"
+		},
+		{
+			"begin": "\"\"\"",
+			"end": "\"\"\"",
+			"name": "string.quoted.triple"
+		},
+		{
+			"begin": "'''",
+			"end": "'''",
+			"name": "string.quoted.triple"
+		},
+		{
+			"match": "\"(?:[^\"\\\\]|\\\\.)*\"",
+			"name": "string.quoted.double"
+		},
+		{
+			"name": "keyword.control.trlc",
+			"match": "\\b(checks|else|elsif|enum|error|extends|fatal|if|import|package|section|separator|then|tuple|type|warning)\\b"
+		},
+		{
+			"name": "keyword.trlc",
+			"match": "\\b(abs|and|exists|false|forall|implies|in|not|null|or|true|xor)\\b"
+		},
+		{
+			"name": "storage.modifier",
+			"match": "\\b(abstract|final|freeze|optional)\\b"
+		},
+		{
+			"name": "entity.name.type",
+			"match": "\\b(Boolean|Integer|Decimal|String|Markup_String)\\b"
+		},
+		{
+			"name": "entity.name.function",
+			"match": "\\b(len|startswith|endswith|matches)\\b"
+		},
+		{
+			"name": "constant.numeric",
+			"match": "0x[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
+		},
+		{
+			"name": "constant.numeric",
+			"match": "[0-9]+(_[0-9]+)*"
+		},
+		{
+			"name": "constant.numeric",
+			"match": "0b[01]+(_[01]+)*"
+		},
+		{
+			"name": "constant.numeric",
+			"match": "[0-9]+(_[0-9]+)*\\.[0-9]+(_[0-9]+)*"
 		}
-    ]
+	]
 }
