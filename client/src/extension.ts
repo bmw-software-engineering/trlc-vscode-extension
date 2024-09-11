@@ -136,7 +136,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
         client = startLangServer(pythonPath, ["-O", "-m", "server"], cwd);
     }
 
-    context.subscriptions.push(client.start());
+    await client.start();
 }
 
 export function deactivate(): Thenable<void> {

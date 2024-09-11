@@ -22,3 +22,4 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+esbuild.js
