@@ -283,7 +283,8 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
         elif parsing == "partial":
             ls.parse_partial = True
     except Exception:  # pylint: disable=W0718
-        LOGGER.error("TRLC: Unable to get workspace configuration", exc_info=True)
+        LOGGER.error("TRLC: Unable to get workspace configuration",
+                     exc_info=True)
 
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
@@ -322,7 +323,8 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
         elif parsing == "partial":
             ls.parse_partial = True
     except Exception:  # pylint: disable=W0718
-        LOGGER.error("TRLC: Unable to get workspace configuration", exc_info=True)
+        LOGGER.error("TRLC: Unable to get workspace configuration",
+                     exc_info=True)
 
     uri = params.text_document.uri
     document = ls.workspace.get_document(uri)
@@ -662,8 +664,8 @@ def rename(ls, params: RenameParams):
     # Exit if parsing is set to partial or not set at all, as the default is
     # partial parsing.
     if ls.parse_partial is True:
-        ls.show_message("TRLC: Rename symbol is only available if parsing is set to \
-                        'full'.")
+        ls.show_message("TRLC: Rename symbol is only available \
+                        if parsing is set to 'full'.")
         return WorkspaceEdit(document_changes=files_changes)
 
     # Exit if the current token is not legitimate for renaming
@@ -681,8 +683,8 @@ def rename(ls, params: RenameParams):
 
     # Prompt the user if errors are detected and exit with no changes made
     if not is_valid:
-        ls.show_message("TRLC: Resolve errors or undo if errors occurred after \
-                        renaming.")
+        ls.show_message("TRLC: Resolve errors or undo if errors occurred \
+                        after renaming.")
         return WorkspaceEdit(document_changes=files_changes)
 
     # Find all references to the symbol being renamed

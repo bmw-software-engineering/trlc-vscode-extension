@@ -1,7 +1,6 @@
 lint: style
 	@python3 -m pylint --rcfile=pylint3.cfg \
 		--reports=no \
-		--score=no \
 		server
 
 style:
@@ -12,7 +11,8 @@ build:
 	npx vsce package
 
 install-python-deps:
-	@python3 -m pip install --target python-deps --isolated -I --platform any --only-binary :all: -r requirements.txt
+	@python3 -m pip install --target python-deps --isolated -I --platform any --only-binary :all: pygls==1.0.2
+	@python3 -m pip install --no-deps --target python-deps --isolated -I --platform any --only-binary :all: trlc>=2.0.0 pyvcg==1.0.7
 
 install: build
 	code --uninstall-extension "bmw-group.trlc-vscode-extension"
