@@ -8,11 +8,11 @@ for TRLC files. Get more information about
 ## Installation
 
 1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
-2. Download and Install [VSCode](https://code.visualstudio.com/download).
+2. Download the `*.vsix` file under the `Assets` tab of the [latest Release](https://github.com/bmw-software-engineering/trlc-vscode-extension/releases/latest) of the extension.
 3. Press `F1` in VSCode, type `Extensions: Install from VSIX...` and install the extension.
-4. Go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
+4. If it is not working out of the box, go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
 
-**IF** you are reinstalling the extension. Make sure to use command: `TRLC: Reset CVC5 Setup` once.
+**IF** you are reinstalling the extension. Press `F1` and make sure to use command: `TRLC: Reset CVC5 Setup` once.
 
 ## How to switch from partial (default) to full parsing.
 
