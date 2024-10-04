@@ -22,8 +22,8 @@ jobs:
           python-version: "3.9"
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements_dev.txt
+          python3 -m pip install --upgrade pip --break-system-packages
+          python3 -m pip install -r requirements_dev.txt --break-system-packages
       - name: Executing linter
         run: |
           make lint
