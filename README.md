@@ -56,13 +56,16 @@ The extension has three dependencies:
    ```bash
    make install-python-deps
    ```
+   **NOTE**: Use only python 3.9.X to create the dependency packages.
 
 2. Make sure you have `Node.js` installed. You will likely need to
    upgrade from the system installed one on Debian/Ubuntu (as root):
 
    ```bash
-   curl -fsSL https://deb.nodesource.com/setup_current.x | bash -
-   apt-get install -y nodejs
+   cd ~
+   curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
+   sudo bash /tmp/nodesource_setup.sh
+   sudo apt-get install -y nodejs
    ```
 
 3. Then use [make](https://www.gnu.org/software/make/) again to build the extension.
