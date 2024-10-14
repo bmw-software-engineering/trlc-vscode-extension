@@ -33,8 +33,7 @@ function getClientOptions(): LanguageClientOptions {
         // Register the server for plain text documents
         documentSelector: [
             { scheme: 'file', pattern: '**/*.rsl' },
-            { scheme: 'file', pattern: '**/*.trlc' },
-            { scheme: 'file', pattern: '**/*.check' },
+            { scheme: 'file', pattern: '**/*.trlc' }
         ],
         outputChannelName: "[pygls] TrlcLanguageServer",
         synchronize: {
