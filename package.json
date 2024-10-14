@@ -65,7 +65,6 @@
                 "id": "TRLC",
                 "extensions": [
                     ".rsl",
-                    ".check",
                     ".trlc"
                 ],
                 "configuration": "./trlc-language-configuration.json"
