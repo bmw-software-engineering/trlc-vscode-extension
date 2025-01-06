@@ -26,6 +26,7 @@ import os
 import sys
 import threading
 import urllib.parse
+from bmw_specific_checks import BMWSpecificChecks
 
 import trlc.errors
 import trlc.lexer
@@ -102,6 +103,22 @@ class TrlcLanguageServer(LanguageServer):
         self.all_files          = {}
         self.validator.start()
 
+        # Initialize BMW-specific checks for future events such as
+        # TEXT_DOCUMENT_DID_OPEN, TEXT_DOCUMENT_DID_CHANGE and WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS
+        self.bmw_checks = BMWSpecificChecks(self)
+        # Perform BMW checks on server first initialization
+        self.perform_bmw_checks_on_startup()
+
+    def perform_bmw_checks_on_startup(self):
+        """
+        Perform BMW-specific checks for all workspace files on server initialization.
+        """
+        # NOTE: Implement logic to parse workspace, probably very simmilar as validate method
+        # for folder_uri in self.workspace.folders.keys():
+        # call the post processing checks like:
+        #     self.bmw_checks.validate_signals(uri, content)
+        #     self.bmw_checks.validate_asil_levels(uri, content)
+
     def validate(self):
         vmh = Vscode_Message_Handler()
         vsm = Vscode_Source_Manager(vmh, self.fh, self)
@@ -136,11 +153,26 @@ class TrlcLanguageServer(LanguageServer):
         self.diagnostic_history = vmh.diagnostics
         self.show_message_log("TRLC: Diagnostics published")
 
+        # Call BMW-specific post-parsing checks
+        self.post_parsing_checks()
+
     def queue_event(self, kind, uri=None, content=None):
         with self.queue_lock:
             self.queue.insert(0, (kind, uri, content))
             self.trigger_parse.set()
+    
+    def post_parsing_checks(self):
+        """
+        Perform BMW-specific post-parsing checks on TRLC files.
+        """
+        for uri, document in self.workspace.documents.items():
+            if uri.endswith('.trlc'):
+                print(f"Post-parsing checks for: {uri}")
 
+                # Call BMW-specific methods
+                self.bmw_checks.validate_signals(uri, document.source)
+                self.bmw_checks.validate_asil_levels(uri, document.source)
+                # more methods...
 
 def _get_uri(file_name):
     abs_path = os.path.abspath(file_name)
@@ -290,6 +322,17 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
     document = ls.workspace.get_document(uri)
     content = document.source
     ls.queue_event("change", uri, content)
+
+    # Perform BMW-specific post-parsing checks
+    if uri.endswith('.trlc'):
+
+        ls.bmw_checks.validate_signals(uri, content)
+        ls.bmw_checks.validate_asil_levels(uri, content)
+        # MORE FEATURES...    
+
+    # Publish diagnostics after BMW-specific checks
+    ls.publish_diagnostics(uri, [])
+
 
 
 @trlc_server.feature(TEXT_DOCUMENT_DID_CLOSE)
