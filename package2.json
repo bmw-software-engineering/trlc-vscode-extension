@@ -1,0 +1,11 @@
+// this package shoould be used by the "client-only 2nd extension"
+// the dependency to the original vscode-trlc-extension must be set here
+// cosider adding the needed configurations of a new client.
+
+// for example:
+
+{
+    "dependencies": {
+      "trlc-vscode-extension": "*"
+    }
+  }

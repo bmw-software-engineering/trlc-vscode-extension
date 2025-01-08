@@ -136,6 +136,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }
 
     await client.start();
+    // Expose API for example when a SYML element is hoovered over
+    // this makes "getHoverDetails(uri, position)" function available to other extensions
+    return {
+        async getHoverDetails(uri: string, position: Position): Promise<Hover | null> {
+            const params = { textDocument: { uri }, position };
+            return await client.sendRequest("textDocument/hover", params);
+        }
 }
 
 export function deactivate(): Thenable<void> {

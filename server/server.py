@@ -607,6 +607,20 @@ def hover(ls, params: TextDocumentPositionParams):
                                           trlc.ast.Builtin_Function))):
         return None
 
+# expose some properties to API like: 
+    if "CB-" in cur_tok.value:  # If the token matches a CodeBeamer ID
+        return Hover(
+            contents=f"this is a CodeBeamer ID and it is clickable",
+            range=_get_location(cur_tok).range
+        )
+
+    if "SYML" in cur_tok.value:  # If the token matches a Syml object
+        return Hover(
+            contents=f"this is a syml reference clickable",
+            range=_get_location(cur_tok).range
+        )
+    # more catched properties could go here to expose them...
+
     ast_obj = _get_ast_entity(cur_tok)
     tok_loc = _get_location(cur_tok)
     tok_rng = tok_loc.range
