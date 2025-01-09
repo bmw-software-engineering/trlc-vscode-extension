@@ -607,7 +607,7 @@ def hover(ls, params: TextDocumentPositionParams):
                                           trlc.ast.Builtin_Function))):
         return None
 
-# expose some properties to API like: 
+    # expose some trlc properties to API like: 
     if "CB-" in cur_tok.value:  # If the token matches a CodeBeamer ID
         return Hover(
             contents=f"this is a CodeBeamer ID and it is clickable",

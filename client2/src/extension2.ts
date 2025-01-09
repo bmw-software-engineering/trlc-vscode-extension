@@ -1,20 +1,62 @@
+// DISCLAIMER: The following code signals 
+// CONCEPTUALLY how a new extension can be 
+// plugged in into vscode-trlc-extension current code
+// Make relevant changes and full testing.
+
 import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext) {
+    // very very important step to set up dependency to original extension!
+    // do not forget also to setup the package.json
     const trlcExtension = vscode.extensions.getExtension('trlc.vscode-extension');
 
     if (trlcExtension) {
-        // set formating for relevant properties like codebeamer ID, syml or commonmark
-        // call codebeamer to make a webview with the codebeamer returned data
+        // set formating and/or decortations 
+        // for relevant properties like codebeamer ID, syml or commonmark printing
+        // call codebeamer to make a webview preview with the codebeamer returned data
+        // execute separately the sanity_checks.py
+        trlcExtension.activate().then((api) => {
+            if (api) {
+                applyDecorations(api);
+                fetchCodeBeamerDetails(api);
+                setupSanityChecks(context, api);
+            }
+        }).catch((error) => {
+            console.error("Failed to activate trlc-vscode-extension:", error);
+        });
+    } else {
+        console.warn("trlc-vscode-extension not found.");
     }
 }
 
+
 function applyDecorations(api) {
-    // Format SYML and CodeBeamer elements with decorations.
-    // Use the original extension's API (`api.getHoverDetails`) to fetch hover details and enhance UI.
+    // Format in UI any SYML and CodeBeamer elements with decorations.
+    // Use the original extension's API (`api.getHoverDetails`) for example
+    // to fetch hover details and enhance UI.
 }
 
 function fetchCodeBeamerDetails(api) {
     // Trigger an API request to CodeBeamer and display the result.
-    // Use `api.getHoverDetails` for hover metadata and link it to a webview or another UI feature.
 }
+
+
+function setupSanityChecks(context: vscode.ExtensionContext, api: any) {
+    // Set up triggers for running sanity checks, e.g., upon saving the file
+    // if condition is met, then run "runSanityChecks" with the 
+    // worskpace path as argument for example
+            
+    runSanityChecks(vscode.workspace.workspaceFolders);
+
+}
+
+function runSanityChecks(workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined) {
+    const workspacePath = workspaceFolders;
+    const scriptPath = '/path/to/sanity_checks.py';
+
+    // run the CLI Tool with python from client
+    const command = `python ${scriptPath} "${workspacePath}"`;
+
+    // from results of the sanity checks adjust UI to show up errors or warings
+}
+

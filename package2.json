@@ -5,7 +5,7 @@
 // for example:
 
 {
-    "dependencies": {
+    "extensionDependencies": {
       "trlc-vscode-extension": "*"
     }
   }

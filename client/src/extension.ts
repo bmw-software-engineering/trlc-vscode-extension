@@ -137,12 +137,31 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
     await client.start();
     // Expose API for example when a SYML element is hoovered over
-    // this makes "getHoverDetails(uri, position)" function available to other extensions
-    return {
+    // this makes "getHoverDetails", "getCBIDDetails" and so on functions
+    // available to other extensions
+    const api = {
         async getHoverDetails(uri: string, position: Position): Promise<Hover | null> {
             const params = { textDocument: { uri }, position };
             return await client.sendRequest("textDocument/hover", params);
-        }
+        },
+        async getCBIDDetails(uri: string, position: Position): Promise<CBIDDetails | null> {
+            // Placeholder: Implement logic to retrieve CodeBeamer ID details
+        },
+        async getAsilLevel(uri: string, position: Position): Promise<AsilLevel | null> {
+            // Placeholder: Implement logic to retrieve ASIL level
+        },
+        async getSymlObjects(uri: string, position: Position): Promise<SymlObjects | null> {
+            // Placeholder: Implement logic to retrieve SYML objects
+        },
+        // more exposures as needed
+    };
+
+    // Export the API to make it available to other extensions
+    // and terminate properly when done
+    // see: https://stackoverflow.com/questions/55554018/purpose-for-subscribing-a-command-in-vscode-extension
+    context.subscriptions.push(client);
+    context.exports = api;
+    return api;
 }
 
 export function deactivate(): Thenable<void> {
