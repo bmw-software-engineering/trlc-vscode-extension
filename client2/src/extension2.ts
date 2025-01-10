@@ -57,6 +57,6 @@ function runSanityChecks(workspaceFolders: readonly vscode.WorkspaceFolder[] | u
     // run the CLI Tool with python from client
     const command = `python ${scriptPath} "${workspacePath}"`;
 
-    // from results of the sanity checks adjust UI to show up errors or warings
+    // from results (like a list of wrong asils with their file paths and list of non-referenced syml objects) of the sanity checks adjust UI to show up errors or warings
 }
 

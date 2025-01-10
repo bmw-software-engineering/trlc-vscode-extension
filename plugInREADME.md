@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This document outlines potential approaches to extend the functionality of the `trlc-vscode-extension` to address specific requirements, such as those of BMW. It explores 2 options: 1) to create a BMW-specific fork of the extension or 2) To implement a plugin system through a second vscode extenstion. On both approaches tha changes to the existing architecture are adressed to eneble the functionalities. In the second option the modifying the core extension was minimized as much as possible by sugesting an elegant solution for it: exposing its data through its own `API`.
+This document outlines potential approaches to extend the functionality of the `trlc-vscode-extension` to address specific requirements, such as those of BMW. It explores 2 options: 1) to create a BMW-specific fork of the extension or 2) To implement a plugin system through a second vscode extenstion. On both approaches tha changes to the existing architecture are adressed to enable the functionalities. In the second option the modifying the core extension was minimized as much as possible by sugesting an elegant solution for it: exposing its data through its own `API`.
 
 ## Context
 
@@ -99,11 +99,111 @@ _NOTE_: A new LSP is required whenever advanced language processing is needed li
 
 _Disclaimer_: The changes represented in PR 32 try to point into the most proable code positions and functions to be edited to make specific enhancements. But these sugestions were not tested, therefore don't consider them as the absolute truth. This is so, because this document just represents a first concept approach.
 
+### Use cases suggestions
+
+Independently of the apporach (Fork or Extension) the following suggestions apply.
+
+All the following suggestions are thought to be implemented on the client's side in `TypeScript` and it does not mean that these cannot be done on the server's side. They are just focused on minimizing changes to the original codebase and to avoid the development of a custom Language Server Protocol (LSP). It is just a possible design apporach/suggestion.
+
+#### 1. Webpreview from Codebeamer
+
+In order to show the contents of a CB's ID (when hoovered or any other desired trigger), we would need to make a http request to the CB's instance, if done with server, expose html contents through the API or if done with client handle the request with Node.js directly. In either way the response has to be "rendered" propperly into VSCode.
+
+Since VS Code doesn't have a built-in so to say "HTML opener" to render HTML as a browser would you can leverage it with `Webviews` to create a browser-like rendering environment. See [createWebviewPanel](https://code.visualstudio.com/api/references/vscode-api)
+
+How the code could look like:
+
+```javascript
+// client's side
+export function activate(context: vscode.ExtensionContext) {
+    let disposable = vscode.commands.registerCommand('extension.fetchAndRenderHtml', async () => {
+        const url = 'https://example.com';
+        
+        try {
+            // handle log in
+            // Fetch webpage's content
+            const response = await fetch(url);
+
+            // Create and show a new Webview panel
+            const panel = vscode.window.createWebviewPanel(
+                'htmlPreview', // Identifier
+                'HTML Preview', // Title
+                // other properties if needed....
+            );
+
+            // Set the HTML content of the Webview
+            panel.webview.html = html;
+        } catch (err) {
+            vscode.window.showErrorMessage(`Error fetching data: ${err.message}`);
+        }
+    });
+
+    context.subscriptions.push(disposable);
+}
+
+```
+
+The previous suggestion is assuming a simple command identifier `fetchAndRenderHtml` that could be programmatically triggered. But the proper event listener must yet be at best defined, like hover over CB id or clicking it.
+
+
+#### 2. Pretty-printing TRLC files
+
+To print `*.trlc` files in commonmark there is an open source [tool](https://github.com/markdown-it/markdown-it) called: `markdown-it` . Which is implemented in `Node.js` and can be integrated into the client. It can interpret text formatted as common mark, like: \*\*Some string in trlc\*\* could be rendered to **Some string in trlc**. This, of course, implies first to adjust/edit the desired strings before giving those to `markdown-it`
+
+View demo [here](https://markdown-it.github.io/)
+
+Assuming the string to be re-formated and printed is avaliable from the server's API then it can be opened via a `Webview` into commonmark format, for example.
+
+Very basic example of re-formnating into commonmark [here](https://github.com/markdown-it/markdown-it?tab=readme-ov-file#simple)
+
+#### 3. Highlight SYML references in Strings 
+
+After opening a `.trlc` file and by using a regular expression to find "*{{SYML:object}}*" inside the trlc files you can provide format to it in the IDE. Most probably the `TextEditorDecorationType` can be used to style specific parts of the text (Consider calculate the range of where the style must be applied). 
+
+**Basic example**
+
+```javascript
+import * as vscode from 'vscode';
+
+export function activate(context: vscode.ExtensionContext) {
+    // Set up a trigger, like when file is opened.
+    // set some styling
+        const redText = vscode.window.createTextEditorDecorationType({ color: 'red' });
+        const blueText = vscode.window.createTextEditorDecorationType({ color: 'blue' });
+        const boldText = vscode.window.createTextEditorDecorationType({ fontWeight: 'bold' });
+
+        // Regex to match the pattern {{SYML:object}}
+        const regex = /\{\{(SYML):([^}]+)\}\}/g;
+
+        // Get text and parse it
+
+        // Find matches and calculate ranges
+
+        // Apply decorations to the editor, very similar to:
+        editor.setDecorations(redText, redRanges);
+        editor.setDecorations(blueText, blueRanges);
+        editor.setDecorations(boldText, boldRanges);
+    });
+
+    // more code...
+}
+```
+
+For more details visit Microsoft's support page in section [createTextEditorDecorationType](https://code.visualstudio.com/api/references/vscode-api#window.createTextEditorDecorationType) and its related instances.
+
+#### 4. + 5. Sanity checks: SYML references and Asil levels + CI Integration
+
+In this particular case, the checks will be indirectly handeld by the client too. With the exception that they will be performed by a sugested python script (see `sanity_checks.py` and inside `extension2.ts` the function: *runSanityChecks*) and by using Node.js to trigger that py-script. This approachs makes the acutal checks executable inside a CI, by checking the exit code and the list of errors in a logical format like json. This all is possible thanks to `Node.js`'s method child_process.
+
+Just as previously mentioned, by the usage of a regex you can identify where are the syml objects inside `trlc` files. Analog to that the VSCode's workspace could be parsed for any `*.syml` file to ensure the syml reference. Since the reference resolution is also needed as CI check, the file parsing should be done by `sanity_checks.py`. The method can recieve for example the paths of any `*.syml` as a list from the client.
+
+For more information see the official node.js documentation [child_process](https://nodejs.org/api/child_process.html#child_processexeccommand-options-callback)
+
 ### Conclusion
 
-The fork approach simplifies very much the development and grants full control over the data, making it an attractive option for a quicker solution. However, in the long term, it creates a higher burden in terms of synchronization and maintenance. Maintaining a fork may require continuous updates to ensure compatibility with upstream changes, which can result in significant overhead.
+The fork approach grants direct control over the data at parsing time, making it an attractive option for a quicker solution. However, in the long term, it creates a higher burden in terms of synchronization and maintenance. Maintaining a fork may require continuous updates to ensure compatibility with upstream changes, which can result in significant overhead.
 
-On the other hand, implementing a plugin system via a second extension offers a decoupled solution. By exposing an API of the original trlc-vscode-extension, the second extension can just dynamically consume and extend functionality without tightly coupling with the core extension. This approach maintains the integrity of the upstream project, reducing the risk of code conflicts and making it easier to adopt updates from the open-source repository. However, this second approach involves a steeper initial development effort, requiring both architectural adjustments to the existing extension and careful planning to ensure API reliability. Additionally, the actual need for a second Language Server Protocol (LSP) must be carefully evaluated. For now, the proposed architecture suggests that the existing LSP can handle the required language processing tasks, while the second extension focuses on enhancing user interface behaviors and performing additional logic via external processes like sanity checks. This assumption must be tested and validated to avoid unforeseen complexities.
+On the other hand, implementing a plugin system via a second extension offers a decoupled solution. By exposing an API of the original trlc-vscode-extension, the second extension can just dynamically consume and extend functionality without tightly coupling with the core extension. Please consider that "catching" and "exposing" the data may be tricky. This second approach involves a steeper initial development effort, requiring both architectural adjustments to the existing extension, yet minimal, and careful planning to ensure API reliability. Additionally, the actual need for a second Language Server Protocol (LSP) must be carefully evaluated. For now, the proposed architecture suggests that the existing LSP can handle the required language processing tasks fully, while the second extension could focus on enhancing user interface behaviors and performing additional logic via external processes like sanity checks or http requests. This assumption must be yet really tested and validated to avoid unforeseen complexities.
 
 ### Useful Links
 
