@@ -2,13 +2,13 @@
 
 ## Introduction
 
-This document outlines potential approaches to extend the functionality of the `trlc-vscode-extension` to address specific requirements, such as those of BMW. It explores 2 options: 1) to create a BMW-specific fork of the extension or 2) To implement a plugin system through a second vscode extenstion. On both approaches tha changes to the existing architecture are adressed to enable the functionalities. In the second option the modifying the core extension was minimized as much as possible by sugesting an elegant solution for it: exposing its data through its own `API`.
+This document outlines potential approaches to extend the functionality of the `trlc-vscode-extension` to address specific requirements, such as those of BMW. It explores 2 options: 1) to create a BMW-specific fork of the extension or 2) To implement a plugin system through a second vscode extenstion. On both approaches the changes to the existing architecture are adressed to enable the functionalities. In the second option the modifying the core extension was minimized as much as possible by sugesting an elegant solution for it: *"exposing its data through its own `API`"*.
 
 ## Context
 
-The `trlc-vscode-extension` uses a so-called “Language Server Protocol” (LSP) to comply with the TRLC programming language. With this server, the extension provides features like syntax checking for `.rsl` and `.trlc` files directly in VSCode. The heart of the VSCode extension uses an open-source tool called: **Pygls**.
+The `trlc-vscode-extension` uses a so-called “Language Server Protocol” (LSP) to comply with the TRLC programming language. With this server, the extension provides features like syntax checking for `.rsl` and `.trlc` files directly in VSCode. The heart of the VSCode extension uses an open-source tool called: [**Pygls**](https://github.com/openlawlibrary/pygls).
 
-The Language Server Protocol (LSP) is a standard created by Microsoft to simplify adding language features like autocompletion, syntax checking, and error diagnostics to code editors. It separates the editor's user interface (client) from language-specific logic (server), enabling reusability of the same server across multiple tools.
+The Language Server Protocol (LSP) is a standard created by Microsoft to simplify adding language features like autocompletion, syntax checking, and error diagnostics to any code editor. It separates the editor's user interface (client) from language-specific logic (server), enabling reusability of the same server across multiple editors.
 
 **Pygls** implements the TRLC rules within its own created `TrlcLanguageServer` in a easy way by providing built-in classes and methods to create the specific LSP servers in Python.
 
@@ -18,7 +18,7 @@ The extension follows a client-server model, utilizing the LSP to separate the e
 
 The client is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/client/src/extension.ts). It handles the communication between the VSCode editor and the Python-based server.
 
-The server is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/server/__main__.py). It performs all the heavy lifting for parsing and analyzing `.rsl` and `.trlc` files aided from the back-end `TRLC` software with its modulesx. 
+The server is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/server/__main__.py). It performs all the heavy lifting for parsing and analyzing `.rsl` and `.trlc` files aided from the back-end `TRLC` software with its modules. 
 
 The LSP (Language Server Protocol) operates on a client-server mode:
 
@@ -43,7 +43,7 @@ _Disclaimer_: The changes represented in PR 31 try to point into the most proabl
 
 Branch with the concept: [PR #32](https://github.com/bmw-software-engineering/trlc-vscode-extension/pull/32)
 
-Implementing a plugin system allows isolating almost completely the original `vscode-trlc-extension`. BMW-specific logic and needs would be packaged into a new `vscode-trlc-bmw-expansion-extension` that the original open-source extension dynamically feeds through a yet-to-be implemented API. This avoids modifying too much the core extension but requires compatibility management. And depending on the complexity of the future features could require its own LSP. At the moment of writing this document and the discussed bmw specific needs, a "client-only" second extension seems to be enough to fulfill the task. Nonetheless, a second LSP would provide advanced language processing posibilities.
+Implementing a plugin system allows isolating almost completely the original `vscode-trlc-extension`. BMW-specific logic and needs would be packaged into a new `vscode-trlc-bmw-expansion-extension` that the original open-source extension dynamically feeds through a yet-to-be implemented API. This avoids modifying too much the core extension but requires compatibility management. And depending on the complexity of the future features could require its own LSP. At the moment of writing this document and the discussed bmw specific needs, a "*client-only*" second extension seems to be enough to fulfill the task. Nonetheless, a second LSP would provide advanced language processing posibilities.
 
 To enable communication with the current extension, the client needs to expose an API. Currently, this is **not the case**, but a proper API could be built in the current `extension.ts`. Microsoft Examples: [VSCode API](https://code.visualstudio.com/api/references/vscode-api#extensions:~:text=open%20was%20successful.-,extensions,-Namespace%20for%20dealing)
 
@@ -85,7 +85,7 @@ In the original extension, edit `client/src/extension.ts` to expose a function l
 
 In the new extension (`extension2.ts`), use the exposed API by accessing `trlc-vscode-extension` via `vscode.extensions.getExtension`, calling `getHoverDetails` to fetch hover data, and enhancing functionality, such as formatting text using `TextEditorDecorationType` [see here](https://code.visualstudio.com/api/references/vscode-api#window.createTextEditorDecorationType:~:text=createTextEditorDecorationType(options%3A%20DecorationRenderOptions)%3A%20TextEditorDecorationType) or making API requests to external services like CodeBeamer.
 
-Also, inside `extension2.ts`, enable sanity checks with a proposed tool called `sanity_checks.py`. This Python script, analogous to `server.py`, can use relevant modules of TRLC’s backend. **This can be tricky** and/or very time-consuming and must be planned correctly. If any sanity errors were found, the UI changes can be handled. The Python script could be run with Node.js's `child_process` module and pass the workspace to parse as an argument.
+Also, inside `extension2.ts`, enable sanity checks with a proposed tool called `sanity_checks.py`. This Python script, analog to `server.py`, can use relevant modules of TRLC’s backend. **This can be tricky** and/or very time-consuming and must be planned correctly. If any sanity errors were found, the UI changes can be handled. The Python script could be run with Node.js's `child_process` module and pass the workspace to parse as an argument.
 
 Later on in the CI the `sanity_checks.py` can be run as well.
 
@@ -145,10 +145,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 The previous suggestion is assuming a simple command identifier `fetchAndRenderHtml` that could be programmatically triggered. But the proper event listener must yet be at best defined, like hover over CB id or clicking it.
 
-
 #### 2. Pretty-printing TRLC files
 
-To print `*.trlc` files in commonmark there is an open source [tool](https://github.com/markdown-it/markdown-it) called: `markdown-it` . Which is implemented in `Node.js` and can be integrated into the client. It can interpret text formatted as common mark, like: \*\*Some string in trlc\*\* could be rendered to **Some string in trlc**. This, of course, implies first to adjust/edit the desired strings before giving those to `markdown-it`
+To print `*.trlc` files in commonmark there is an open source tool called: [`markdown-it`](https://github.com/markdown-it/markdown-it). Which is implemented in `Node.js` and therefore can be integrated into the client inside VSCode. It can interpret text formatted as common mark, like: \*\*Some string in trlc\*\* could be rendered to **Some string in trlc**. This, of course, implies **first** to adjust/edit the desired strings before giving those to `markdown-it`.
 
 View demo [here](https://markdown-it.github.io/)
 
