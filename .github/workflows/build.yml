@@ -2,9 +2,9 @@ name: TRLC Extension Build
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
-    branches: ["main"]
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -32,8 +32,14 @@ jobs:
       - name: "Build package"
         run: |
           npx vsce package
-      - name: "Archive package"
+          python3 -m build --wheel
+      - name: "Archive vsix"
         uses: actions/upload-artifact@v4
         with:
           name: package
           path: "*.vsix"
+      - name: "Archive wheel"
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsp-wheel
+          path: "dist/*.whl"
