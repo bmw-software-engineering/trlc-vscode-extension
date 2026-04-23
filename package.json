@@ -1,12 +1,12 @@
 {
     "name": "trlc-vscode-extension",
-    "version": "3.0.4",
+    "version": "3.1.0",
     "publisher": "bmw-group",
     "author": {
         "name": "BMW Group"
     },
     "engines": {
-        "vscode": "^1.62.0"
+        "vscode": "^1.116.0"
     },
     "icon": "assets/BMW_White-Colour_RGB.png",
     "license": "GPL-3.0-or-later",
@@ -34,14 +34,14 @@
         "ms-python.python"
     ],
     "devDependencies": {
-        "@types/node": "^22.5.4",
-        "@types/vscode": "^1.62.0",
-        "@typescript-eslint/eslint-plugin": "^8.4.0",
-        "@typescript-eslint/parser": "^8.4.0",
-        "@vscode/vsce": "^3.1.0",
-        "esbuild": "^0.23.1",
-        "eslint": "^9.10.0",
-        "typescript": "^5.5.4"
+        "@types/node": "^22.19.17",
+        "@types/vscode": "^1.116.0",
+        "@typescript-eslint/eslint-plugin": "^8.58.2",
+        "@typescript-eslint/parser": "^8.58.2",
+        "@vscode/vsce": "^3.9.0",
+        "esbuild": "^0.28.0",
+        "eslint": "^9.39.4",
+        "typescript": "^5.9.3"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
@@ -57,7 +57,7 @@
     },
     "main": "client/out/extension",
     "activationEvents": [
-        "onStartupFinished"
+        "onLanguage:TRLC"
     ],
     "contributes": {
         "languages": [
@@ -84,7 +84,7 @@
             },
             {
                 "command": "extension.resetState",
-                "title": "TRLC: Reset CVC5 Setup"
+                "title": "TRLC: Reset Setup"
             }
         ],
         "configuration": {
@@ -96,6 +96,21 @@
                     "type": "string",
                     "default": "partial",
                     "description": "Enable/Disable partial parsing. Set to full for complete parsing."
+                },
+                "trlcServer.verify": {
+                    "scope": "window",
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable CVC5 formal verification of checks. Significantly increases parse time."
+                },
+                "trlcServer.excludePatterns": {
+                    "scope": "window",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Regex patterns matched against directory names to exclude from TRLC include scanning. The pattern `^bazel-.*$` is always applied by default."
                 }
             }
         }
