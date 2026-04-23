@@ -18,7 +18,7 @@ In this document we outline how to develop an extension for Visual Studio Code t
 
 This document explores two options:
 1. to create a fork of the extension specific to "Other Company", and
-2. to implement a plugin system through a second VSCode extension. 
+2. to implement a plugin system through a second VSCode extension.
 
 On both approaches the changes to the existing architecture are addressed to enable the functionalities.
 In the second option modifying the core extension was minimized as much as possible by suggesting an elegant solution for it: *"exposing its data through its own `API`"*.
@@ -44,7 +44,7 @@ The server is implemented in Python using the Pygls library, while the client is
 The client is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/client/src/extension.ts).
 It handles the communication between the VSCode editor and the Python-based server.
 
-The server is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/server/__main__.py).
+The server is implemented [here](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/trlc_lsp/__main__.py).
 It performs all the heavy lifting for parsing and analyzing `.rsl` and `.trlc` files.
 
 The LSP operates on a client-server mode:
@@ -57,7 +57,7 @@ We now go into the details of the two possible approaches to deal with specific 
 ### 1. Fork of the Extension
 A "Other Company" fork of the extension provides complete control over the codebase but comes with the downside of maintaining and synchronizing changes with the upstream open-source repository.
 
-- New handlers in `server/server.py` are needed to be added for specific checks of "Other Company".
+- New handlers in `trlc_lsp/server.py` are needed to be added for specific checks of "Other Company".
 - Full control of current file parsing/processing as a post-processing step is given, and new handlers within existing parsing can be added.
 - No API needs to be exposed nor implemented.
 
@@ -88,7 +88,7 @@ class OtherCompanySpecificChecks:
         print(f"Pretty-printing {uri}")
 ```
 
-This code has to be made known to `TrlcLanguageServer` in [server.py](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/server/server.py).
+This code has to be made known to `TrlcLanguageServer` in [server.py](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/trlc_lsp/server.py).
 Create a new instance in its `__init__` function:
 ```python
 def __init__(self, *args):
@@ -97,7 +97,7 @@ def __init__(self, *args):
   # ...
 ```
 
-Then extend its [validate](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/b7f74006af0f1e17dd1171af82b0b3bc4f1f7de9/server/server.py#L105) function:
+Then extend its [validate](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/trlc_lsp/server.py) function:
 ```python
 def validate(self):
   # ..
@@ -182,7 +182,7 @@ This section outlines the implementation.
 In the TRLC extension, edit `client/src/extension.ts` to expose a function like `getHoverDetails(uri: string, position: Position)` in its `activate` function,
 which sends a `textDocument/hover` request to the language server via `client.sendRequest` and returns hover data.
 
-So at the end of [activate](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/b7f74006af0f1e17dd1171af82b0b3bc4f1f7de9/client/src/extension.ts#L139) insert this piece of code:
+So at the end of [activate](https://github.com/bmw-software-engineering/trlc-vscode-extension/blob/main/client/src/extension.ts) insert this piece of code:
 ```typescript
     // Expose API when hovering - this makes functions like "getHoverDetails" etc. available to other extensions
     const api = {
@@ -257,7 +257,7 @@ function fetchJiraDetails(api) {
 
 function setupSanityChecks(context: vscode.ExtensionContext, api: any) {
     // Set up triggers for running sanity checks, e.g., upon saving the file
-    // if condition is met, then run "runSanityChecks" with the 
+    // if condition is met, then run "runSanityChecks" with the
     // worskpace path as argument for example
     runSanityChecks(vscode.workspace.workspaceFolders);
 
@@ -298,7 +298,7 @@ This is how the code could look like:
 export function activate(context: vscode.ExtensionContext) {
     let disposable = vscode.commands.registerCommand('extension.fetchAndRenderHtml', async () => {
         const url = 'https://example.com';
-        
+
         try {
             // handle log in
             // Fetch webpage's content
