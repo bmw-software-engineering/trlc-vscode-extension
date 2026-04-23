@@ -1,3 +1,4 @@
 -r requirements.txt
-pycodestyle==2.12.0
-pylint==3.2.4
+build>=1.0
+pycodestyle==2.14.0
+pylint==3.3.9
