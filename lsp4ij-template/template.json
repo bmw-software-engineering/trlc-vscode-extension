@@ -1,0 +1,20 @@
+{
+    "id": "trlc-lsp",
+    "name": "TRLC Language Server",
+    "programArgs": {
+        "windows": "cmd /C set PYTHONPATH=$USER_HOME$\\.lsp4ij\\trlc-lsp && python -m trlc_lsp",
+        "default": "sh -c \"PYTHONPATH=$USER_HOME$/.lsp4ij/trlc-lsp python3 -m trlc_lsp\""
+    },
+    "fileTypeMappings": [
+        {
+            "fileType": {
+                "name": "TRLC",
+                "patterns": [
+                    "*.trlc",
+                    "*.rsl"
+                ]
+            },
+            "languageId": "trlc"
+        }
+    ]
+}

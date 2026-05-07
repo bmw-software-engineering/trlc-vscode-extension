@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trlc-lsp"
+version = "3.1.0"
+description = "Language Server Protocol implementation for TRLC"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.8"
+dependencies = [
+    "lsprotocol>=2025.0.0",
+    "pygls==2.1.1",
+    "trlc>=2.0.4",
+]
+
+[project.scripts]
+trlc-lsp = "trlc_lsp.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["trlc_lsp*"]

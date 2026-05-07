@@ -19,6 +19,7 @@
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 
 import os
+import re
 import urllib.parse
 import uuid
 
@@ -51,7 +52,7 @@ class Vscode_Message_Handler(Message_Handler):
         super().__init__()
         self.diagnostics = {}
 
-    def emit(
+    def emit(  # pylint: disable=R0917
         self,
         location,
         kind,
@@ -96,18 +97,24 @@ class File_Handler:
         self.files[uri] = content
 
     def delete_files(self, uri):
-        del self.files[uri]
+        self.files.pop(uri, None)
 
 
 class Vscode_Source_Manager(Source_Manager):
     """Reimplementation of TRLC's Source_Manager to read from vscode's
     workspace."""
 
-    def __init__(self, mh, fh, ls):
-        super().__init__(mh=mh, verify_mode=True)
+    def __init__(self, mh, fh, ls, verify_mode=True,  # pylint: disable=R0917
+                 exclude_patterns=None):
+        super().__init__(mh=mh, verify_mode=verify_mode)
         self.fh = fh
-        self.progress = ls.progress
+        self.progress = ls.work_done_progress
         self.ptoken = None
+        # Mirror TRLC CLI default: exclude bazel-* directories.
+        self.exclude_patterns = [re.compile(r"^bazel-.*$")]
+        if exclude_patterns:
+            for pattern in exclude_patterns:
+                self.exclude_patterns.append(re.compile(pattern))
 
     def callback_parse_begin(self):
         self.ptoken = str(uuid.uuid4())

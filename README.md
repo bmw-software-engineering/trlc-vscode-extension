@@ -5,6 +5,11 @@ features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
+The language server (`trlc_lsp`) that powers this extension is also
+available as a **standalone Python package**, so you can use it with
+any LSP-capable editor such as Neovim, Emacs, or Helix — see
+[trlc_lsp/README.md](trlc_lsp/README.md).
+
 ## Installation
 
 1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
@@ -12,7 +17,13 @@ for TRLC files. Get more information about
 3. Press `F1` in VSCode, type `Extensions: Install from VSIX...` and install the extension.
 4. If it is not working out of the box, go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
 
-**IF** you are reinstalling the extension. Press `F1` and make sure to use command: `TRLC: Reset CVC5 Setup` once.
+On first use, the extension automatically installs all required Python
+dependencies (`pygls`, `trlc`, and `lsprotocol`) into an
+isolated `python-deps/` folder inside the extension directory — no
+manual `pip install` is needed.
+
+**Reinstalling the extension?** Press `F1` and run: `TRLC: Reset Setup`
+once so that dependencies are re-installed cleanly.
 
 ## How to switch from partial (default) to full parsing.
 
@@ -43,22 +54,22 @@ when a change is made in a file.
 
 ### Dependencies
 
-The extension has three dependencies:  
-1. [pygls](https://pypi.org/project/pygls) - A Python Language Server implementation for the Language Server Protocol. -> bundled into the extension.
-2. [TRLC](https://github.com/bmw-software-engineering/trlc) - A tool for the formal verification of requirements. -> bundled into the extension.
-3. [CVC5](https://cvc5.github.io) - An open-source automatic theorem prover for SMT theories. -> will be installed automatically after the extension is installed. When reinstalling the extension, use the command `TRLC: Reset CVC5 Setup` to reinstall CVC5 (reason why it is not bundled: there are different versions for different operating systems).
+All Python runtime dependencies are bundled automatically into `python-deps/`
+during the first extension activation:
+
+| Package | Purpose | Bundled |
+|---------|---------|------|
+| [pygls](https://pypi.org/project/pygls) | LSP framework | yes, auto-installed |
+| [lsprotocol](https://pypi.org/project/lsprotocol) | LSP type definitions | yes, auto-installed |
+| [trlc](https://github.com/bmw-software-engineering/trlc) | TRLC parser and type checker | yes, auto-installed |
+| [cvc5](https://cvc5.github.io) | SMT solver for formal verification | yes, via trlc/PyVCG |
+
+CVC5 is pulled in transitively by `trlc` (via the `PyVCG` package) so
+no separate cvc5 install step is required.
 
 ### Build from source
 
-1. Use [make](https://www.gnu.org/software/make/) to
-   install required python packages.
-
-   ```bash
-   make install-python-deps
-   ```
-   **NOTE**: Use only python 3.9.X to create the dependency packages.
-
-2. Make sure you have `Node.js` installed. You will likely need to
+1. Make sure you have `Node.js` installed. You will likely need to
    upgrade from the system installed one on Debian/Ubuntu (as root):
 
    ```bash
@@ -68,7 +79,7 @@ The extension has three dependencies:
    sudo apt-get install -y nodejs
    ```
 
-3. Then use [make](https://www.gnu.org/software/make/) again to build the extension.
+2. Install npm dependencies and build:
 
    ```bash
    make build

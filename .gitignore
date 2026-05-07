@@ -17,3 +17,7 @@ __pycache__/
 python-deps/
 *.py[cod]
 .jython_cache/
+dist/
+*.egg-info/
+build/
+*.whl

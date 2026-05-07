@@ -1,0 +1,41 @@
+{
+    "id": "trlc-lsp",
+    "name": "TRLC Language Server",
+    "executeOnStartServer": true,
+    "check": {
+        "exec": {
+            "name": "Check trlc_lsp is installed",
+            "command": {
+                "windows": [
+                    "cmd",
+                    "/c",
+                    "if exist \"$USER_HOME$\\.lsp4ij\\trlc-lsp\\trlc_lsp\" (exit 0) else (exit 1)"
+                ],
+                "default": [
+                    "sh",
+                    "-c",
+                    "test -d \"$USER_HOME$/.lsp4ij/trlc-lsp/trlc_lsp\""
+                ]
+            },
+            "timeout": 5000
+        }
+    },
+    "run": {
+        "exec": {
+            "name": "Install TRLC Language Server",
+            "ignoreStderr": true,
+            "command": {
+                "windows": [
+                    "powershell",
+                    "-Command",
+                    "$url = (Invoke-RestMethod 'https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest').assets | Where-Object { $_.name -like '*.whl' } | Select-Object -First 1 -ExpandProperty browser_download_url; pip install --upgrade --target \"$env:USERPROFILE\\.lsp4ij\\trlc-lsp\" $url"
+                ],
+                "default": [
+                    "sh",
+                    "-c",
+                    "pip3 install --upgrade --target $USER_HOME$/.lsp4ij/trlc-lsp \"$(curl -s https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest | python3 -c 'import json,sys; d=json.load(sys.stdin); assets=d.get(\"assets\",[]); url=next((a[\"browser_download_url\"] for a in assets if a[\"name\"].endswith(\".whl\")),None); sys.exit(1) if not url else print(url)')\""
+                ]
+            }
+        }
+    }
+}

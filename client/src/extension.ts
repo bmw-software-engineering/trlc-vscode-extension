@@ -19,7 +19,7 @@
 "use strict";
 
 import * as path from "path";
-import { ExtensionContext, ExtensionMode, workspace } from "vscode";
+import { ExtensionContext, ExtensionMode, commands, window, workspace } from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -46,41 +46,46 @@ function getClientOptions(): LanguageClientOptions {
 function startLangServer(
     command: string,
     args: string[],
-    cwd: string
+    cwd: string,
+    pythonPath: string
 ): LanguageClient {
+    const env = { ...process.env, PYTHONPATH: pythonPath };
     const serverOptions: ServerOptions = {
         args,
         command,
-        options: { cwd },
+        options: { cwd, env },
     };
 
     return new LanguageClient(command, serverOptions, getClientOptions());
 }
 
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import * as fs from 'fs';
 
 async function setup(context: ExtensionContext): Promise<void> {
-    const isSetupDone = context.workspaceState.get<boolean>('setupDone', false);
-
     const targetDirectory = path.join(context.extensionPath, 'python-deps');
+    const trlcMarker = path.join(targetDirectory, 'trlc');
 
-    if (!isSetupDone) {
+    const needsInstall = !fs.existsSync(trlcMarker);
+
+    if (needsInstall) {
         console.log("Running setup script...");
         try {
-            await installPythonPackage(targetDirectory, 'cvc5==1.2.0');
-            await context.workspaceState.update('setupDone', true);
+            await installPythonPackage(targetDirectory, 'lsprotocol>=2025.0.0');
+            await installPythonPackage(targetDirectory, 'pygls==2.1.1');
+            await installPythonPackage(targetDirectory, 'trlc>=2.0.4');
         } catch (error) {
-            console.error("Setup failed during package installation of CVC5", error);
+            console.error("Setup failed during package installation", error);
         }
     }
 }
 
 function installPythonPackage(targetDirectory: string, packageName: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const pipCommand = process.platform === 'win32' ? 'python -m pip' : 'python3 -m pip';
-        const command = `${pipCommand} install --target ${targetDirectory} ${packageName}`;
+        const python = process.platform === 'win32' ? 'python' : 'python3';
+        const args = ['-m', 'pip', 'install', '--target', targetDirectory, '--upgrade', packageName];
 
-        exec(command, (error, stdout, stderr) => {
+        execFile(python, args, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Error installing package: ${stderr}`);
                 reject(error);
@@ -91,14 +96,21 @@ function installPythonPackage(targetDirectory: string, packageName: string): Pro
         });
     });
 }
-import { commands } from 'vscode';
 export async function activate(context: ExtensionContext): Promise<void> {
+    const depsPath = path.join(context.extensionPath, 'python-deps');
+
     context.subscriptions.push(
         commands.registerCommand('extension.resetState', async () => {
-            await context.workspaceState.update('setupDone', undefined);
-            console.log("State has been reset.");
+            try {
+                await fs.promises.rm(depsPath, { recursive: true, force: true });
+                window.showInformationMessage(
+                    'TRLC: python-deps removed. Reload the window to reinstall dependencies.');
+            } catch (error) {
+                console.error('Failed to remove python-deps:', error);
+            }
         })
-    )
+    );
+
     try {
         await setup(context);
         console.log("Setup completed successfully.");
@@ -106,33 +118,23 @@ export async function activate(context: ExtensionContext): Promise<void> {
         console.error("Setup failed.", error);
     }
 
+    const cwd = path.join(__dirname, "..", "..");
+    const pythonInterpreter = workspace
+        .getConfiguration("python")
+        .get<string>("defaultInterpreterPath");
+
+    if (!pythonInterpreter) {
+        throw new Error("`python.defaultInterpreterPath` is not set");
+    }
+
     if (context.extensionMode === ExtensionMode.Development) {
-        const cwd = path.join(__dirname, "..", "..");
         console.log("Activate server");
-        const pythonPath = workspace
-            .getConfiguration("python")
-            .get<string>("defaultInterpreterPath");
-
-        if (!pythonPath) {
-            throw new Error("`python.pythonPath` is not set");
-        }
-
-        client = startLangServer(pythonPath, ["-m", "server"], cwd);
+        client = startLangServer(pythonInterpreter, ["-m", "trlc_lsp"], cwd, depsPath);
         // Development - Run the server manually
         // client = startLangServerTCP(2087);
     } else {
-        // workspace.getConfiguration("python"));
         // Production - Client is going to run the server (for use within `.vsix` package)
-        const cwd = path.join(__dirname, "..", "..");
-        const pythonPath = workspace
-            .getConfiguration("python")
-            .get<string>("defaultInterpreterPath");
-
-        if (!pythonPath) {
-            throw new Error("`python.pythonPath` is not set");
-        }
-
-        client = startLangServer(pythonPath, ["-O", "-m", "server"], cwd);
+        client = startLangServer(pythonInterpreter, ["-O", "-m", "trlc_lsp"], cwd, depsPath);
     }
 
     await client.start();

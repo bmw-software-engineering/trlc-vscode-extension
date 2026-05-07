@@ -25,8 +25,10 @@ import logging
 import os
 import sys
 import threading
+import time
 import urllib.parse
 
+import trlc.ast
 import trlc.errors
 import trlc.lexer
 from lsprotocol.types import (TEXT_DOCUMENT_COMPLETION,
@@ -36,27 +38,112 @@ from lsprotocol.types import (TEXT_DOCUMENT_COMPLETION,
                               TEXT_DOCUMENT_RENAME,
                               TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
                               TEXT_DOCUMENT_TYPE_DEFINITION,
+                              WORKSPACE_DID_CHANGE_CONFIGURATION,
                               WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS,
                               CompletionItem, CompletionList,
                               CompletionOptions, CompletionParams,
-                              ConfigurationItem, DidChangeTextDocumentParams,
+                              ConfigurationItem, ConfigurationParams,
+                              DidChangeConfigurationParams,
+                              DidChangeTextDocumentParams,
                               DidChangeWorkspaceFoldersParams,
                               DidCloseTextDocumentParams,
                               DidOpenTextDocumentParams, Hover, Location,
+                              LogMessageParams, MessageType,
                               OptionalVersionedTextDocumentIdentifier,
-                              Position, Range, ReferenceParams, RenameParams,
+                              Position, PublishDiagnosticsParams, Range,
+                              ReferenceParams, RenameParams,
                               SemanticTokens, SemanticTokensLegend,
-                              SemanticTokensParams, TextDocumentEdit,
+                              SemanticTokensParams, ShowMessageParams,
+                              TextDocumentEdit,
                               TextDocumentPositionParams, TextEdit,
-                              TypeDefinitionParams,
-                              WorkspaceConfigurationParams, WorkspaceEdit)
-from pygls.server import LanguageServer
+                              TypeDefinitionParams, WorkspaceEdit)
+from pygls.lsp.server import LanguageServer
 
 from .trlc_utils import (File_Handler, Vscode_Message_Handler,
                          Vscode_Source_Manager)
 
 LOGGER = logging.getLogger()
 WAIT_PARSING = "TRLC: Please wait for parsing to finish"
+
+DEBOUNCE_SECONDS = 0.3
+
+# ---------------------------------------------------------------------------
+# LSP Semantic Token Types
+# The order here defines the index used in the encoded token data.
+# ---------------------------------------------------------------------------
+SEMANTIC_TOKEN_TYPES = [
+    "keyword",    # 0
+    "comment",    # 1
+    "string",     # 2
+    "number",     # 3
+    "operator",  # 4
+    "namespace",  # 5
+    "type",       # 6
+    "variable",   # 7
+    "enumMember",  # 8
+    "property",   # 9
+]
+
+_SEMANTIC_KEYWORD = 0
+_SEMANTIC_COMMENT = 1
+_SEMANTIC_STRING = 2
+_SEMANTIC_NUMBER = 3
+_SEMANTIC_OPERATOR = 4
+_SEMANTIC_NAMESPACE = 5
+_SEMANTIC_TYPE = 6
+_SEMANTIC_VARIABLE = 7
+_SEMANTIC_ENUM_MEMBER = 8
+_SEMANTIC_PROPERTY = 9
+
+# Static mapping from TRLC lexer token kind to semantic type index.
+# IDENTIFIER is handled dynamically via the AST link.
+_KIND_TO_SEMANTIC = {
+    "KEYWORD": _SEMANTIC_KEYWORD,
+    "COMMENT": _SEMANTIC_COMMENT,
+    "STRING": _SEMANTIC_STRING,
+    "INTEGER": _SEMANTIC_NUMBER,
+    "DECIMAL": _SEMANTIC_NUMBER,
+    "OPERATOR": _SEMANTIC_OPERATOR,
+}
+
+
+def _get_token_semantic_type(tok):
+    """Return the LSP semantic token type index for tok, or None to skip.
+
+    Tokens that span multiple lines (block comments, triple-quoted strings)
+    are skipped — None is returned — because the LSP semantic token encoding
+    does not support multi-line tokens.  The TextMate grammar in the VS Code
+    extension handles those as a fallback.
+    """
+    # Skip multi-line tokens; LSP encoding requires single-line spans.
+    token_text = tok.location.lexer.content[
+        tok.location.start_pos:tok.location.end_pos + 1
+    ]
+    if "\n" in token_text:
+        return None
+
+    st = _KIND_TO_SEMANTIC.get(tok.kind)
+    if st is not None:
+        return st
+
+    if tok.kind == "IDENTIFIER" and tok.ast_link is not None:
+        ast_obj = _get_ast_entity(tok)
+        if ast_obj is None:
+            return _SEMANTIC_VARIABLE
+        if isinstance(ast_obj, trlc.ast.Package):
+            return _SEMANTIC_NAMESPACE
+        if isinstance(ast_obj, (trlc.ast.Record_Type,
+                                trlc.ast.Tuple_Type,
+                                trlc.ast.Enumeration_Type,
+                                trlc.ast.Builtin_Type)):
+            return _SEMANTIC_TYPE
+        if isinstance(ast_obj, trlc.ast.Enumeration_Literal_Spec):
+            return _SEMANTIC_ENUM_MEMBER
+        if isinstance(ast_obj, trlc.ast.Composite_Component):
+            return _SEMANTIC_PROPERTY
+        return _SEMANTIC_VARIABLE
+
+    return None
 
 
 class TrlcValidator(threading.Thread):
@@ -83,6 +170,12 @@ class TrlcValidator(threading.Thread):
         while True:
             self.server.trigger_parse.wait()
             self.server.trigger_parse.clear()
+            # Debounce: wait for edits to settle before parsing
+            while True:
+                time.sleep(DEBOUNCE_SECONDS)
+                if not self.server.trigger_parse.is_set():
+                    break
+                self.server.trigger_parse.clear()
             self.validate()
 
 
@@ -94,17 +187,36 @@ class TrlcLanguageServer(LanguageServer):
         self.diagnostic_history = {}
         self.fh                 = File_Handler()
         self.parse_partial      = True
+        self.verify_mode        = True
+        self.exclude_patterns   = []
         self.queue_lock         = threading.Lock()
         self.queue              = []
+        self.data_lock          = threading.Lock()
         self.symbols            = trlc.ast.Symbol_Table()
         self.trigger_parse      = threading.Event()
         self.validator          = TrlcValidator(self)
         self.all_files          = {}
         self.validator.start()
 
+    def apply_config(self, config):
+        """Apply a configuration dict from the client."""
+        parsing = config.get("parsing")
+        if parsing == "full":
+            self.parse_partial = False
+        elif parsing == "partial":
+            self.parse_partial = True
+        verify = config.get("verify")
+        if verify is not None:
+            self.verify_mode = bool(verify)
+        patterns = config.get("excludePatterns")
+        if isinstance(patterns, list):
+            self.exclude_patterns = [str(p) for p in patterns]
+
     def validate(self):
         vmh = Vscode_Message_Handler()
-        vsm = Vscode_Source_Manager(vmh, self.fh, self)
+        vsm = Vscode_Source_Manager(vmh, self.fh, self,
+                                    verify_mode=self.verify_mode,
+                                    exclude_patterns=self.exclude_patterns)
 
         for folder_uri in self.workspace.folders.keys():
             folder_path = _get_path(folder_uri)
@@ -122,19 +234,25 @@ class TrlcLanguageServer(LanguageServer):
                 vsm.register_file(file_path, file_content)
 
         vsm.process()
-        self.symbols = vsm.stab
-        self.all_files = {
+        new_symbols = vsm.stab
+        new_all_files = {
             key.replace('\\', '/'): value
             for key, value in vsm.all_files.items()
         }
+        with self.data_lock:
+            self.symbols = new_symbols
+            self.all_files = new_all_files
 
-        if self.workspace.documents:
-            for uri in self.diagnostic_history:
-                self.publish_diagnostics(uri, [])
+        for uri in self.diagnostic_history:
+            self.text_document_publish_diagnostics(
+                PublishDiagnosticsParams(uri=uri, diagnostics=[]))
         for uri, diagnostics in vmh.diagnostics.items():
-            self.publish_diagnostics(uri, diagnostics)
+            self.text_document_publish_diagnostics(
+                PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics))
         self.diagnostic_history = vmh.diagnostics
-        self.show_message_log("TRLC: Diagnostics published")
+        self.window_log_message(
+            LogMessageParams(type=MessageType.Log,
+                             message="TRLC: Diagnostics published"))
 
     def queue_event(self, kind, uri=None, content=None):
         with self.queue_lock:
@@ -265,11 +383,11 @@ def on_workspace_folders_change(ls, _: DidChangeWorkspaceFoldersParams):
     ls.queue_event("reparse")
 
 
-@trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
-async def did_change(ls, params: DidChangeTextDocumentParams):
-    """Text document did change notification."""
+@trlc_server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
+async def on_config_change(ls, _: DidChangeConfigurationParams):
+    """Configuration did change notification — pull new settings."""
     try:
-        config = await ls.get_configuration_async(WorkspaceConfigurationParams(
+        config = await ls.workspace_configuration_async(ConfigurationParams(
             items=[
                 ConfigurationItem(
                     scope_uri="",
@@ -277,17 +395,18 @@ async def did_change(ls, params: DidChangeTextDocumentParams):
                 )
             ]
         ))
-        parsing = config[0].get("parsing")
-        if parsing == "full":
-            ls.parse_partial = False
-        elif parsing == "partial":
-            ls.parse_partial = True
+        ls.apply_config(config[0])
     except Exception:  # pylint: disable=W0718
         LOGGER.error("TRLC: Unable to get workspace configuration",
                      exc_info=True)
+    ls.queue_event("reparse")
 
+
+@trlc_server.feature(TEXT_DOCUMENT_DID_CHANGE)
+def did_change(ls, params: DidChangeTextDocumentParams):
+    """Text document did change notification."""
     uri = params.text_document.uri
-    document = ls.workspace.get_document(uri)
+    document = ls.workspace.get_text_document(uri)
     content = document.source
     ls.queue_event("change", uri, content)
 
@@ -309,7 +428,7 @@ def cmd_parse_all(ls, *args):  # pylint: disable=W0613
 async def did_open(ls, params: DidOpenTextDocumentParams):
     """Text document did open notification."""
     try:
-        config = await ls.get_configuration_async(WorkspaceConfigurationParams(
+        config = await ls.workspace_configuration_async(ConfigurationParams(
             items=[
                 ConfigurationItem(
                     scope_uri="",
@@ -317,17 +436,12 @@ async def did_open(ls, params: DidOpenTextDocumentParams):
                 )
             ]
         ))
-        parsing = config[0].get("parsing")
-        if parsing == "full":
-            ls.parse_partial = False
-        elif parsing == "partial":
-            ls.parse_partial = True
+        ls.apply_config(config[0])
     except Exception:  # pylint: disable=W0718
         LOGGER.error("TRLC: Unable to get workspace configuration",
                      exc_info=True)
-
     uri = params.text_document.uri
-    document = ls.workspace.get_document(uri)
+    document = ls.workspace.get_text_document(uri)
     content = document.source
     ls.queue_event("change", uri, content)
 
@@ -356,12 +470,16 @@ def completion(ls, params: CompletionParams):
     file_path    = _get_path(uri)
     items        = []
 
-    try:
-        cur_pkg  = ls.all_files[file_path].cu.package
-        tokens   = ls.all_files[file_path].lexer.tokens
-    except KeyError:
-        ls.show_message(WAIT_PARSING)
-        return CompletionList(is_incomplete=False, items=items)
+    with ls.data_lock:
+        try:
+            cur_pkg  = ls.all_files[file_path].cu.package
+            tokens   = ls.all_files[file_path].lexer.tokens
+            symbols  = ls.symbols
+        except KeyError:
+            ls.window_show_message(
+                ShowMessageParams(type=MessageType.Info,
+                                  message=WAIT_PARSING))
+            return CompletionList(is_incomplete=False, items=items)
 
     tok          = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True)
     pre_tok      = _get_token(tokens, cursor_line, cursor_col - 1, greedy=True,
@@ -371,7 +489,7 @@ def completion(ls, params: CompletionParams):
     # Populate label_list with package names if the trigger character is a
     # space and the token value is either 'package' or 'import'.
     if trigger_char == " " and tok and tok.value in ["package", "import"]:
-        label_list = [f"{value.name}" for value in ls.symbols.table.values()
+        label_list = [f"{value.name}" for value in symbols.table.values()
                       if isinstance(value, trlc.ast.Package)]
 
     # Exit condition: If there is no token at the cursor position
@@ -436,7 +554,7 @@ def completion(ls, params: CompletionParams):
           isinstance(tok.ast_link.n_typ, trlc.ast.Record_Type)):
         pkg_name = tok.ast_link.n_typ.n_package.name
         label_list = [f"{value.name}" for value in
-                      ls.symbols.table[pkg_name].symbols.table.values() if
+                      symbols.table[pkg_name].symbols.table.values() if
                       isinstance(value, trlc.ast.Record_Object)]
 
     if label_list:
@@ -467,11 +585,14 @@ def goto_type_definition(ls, params: TypeDefinitionParams):
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
 
-    try:
-        tokens  = ls.all_files[file_path].lexer.tokens
-    except KeyError:
-        ls.show_message(WAIT_PARSING)
-        return None
+    with ls.data_lock:
+        try:
+            tokens  = ls.all_files[file_path].lexer.tokens
+        except KeyError:
+            ls.window_show_message(
+                ShowMessageParams(type=MessageType.Info,
+                                  message=WAIT_PARSING))
+            return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
     ast_loc     = None
@@ -517,13 +638,17 @@ def references(ls, params: ReferenceParams):
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
 
-    try:
-        cur_pkg = ls.all_files[file_path].cu.package
-        imp_pkg = ls.all_files[file_path].cu.imports
-        tokens  = ls.all_files[file_path].lexer.tokens
-    except KeyError:
-        ls.show_message(WAIT_PARSING)
-        return None
+    with ls.data_lock:
+        try:
+            cur_pkg = ls.all_files[file_path].cu.package
+            imp_pkg = ls.all_files[file_path].cu.imports
+            tokens  = ls.all_files[file_path].lexer.tokens
+            all_files = ls.all_files
+        except KeyError:
+            ls.window_show_message(
+                ShowMessageParams(type=MessageType.Info,
+                                  message=WAIT_PARSING))
+            return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
 
@@ -542,7 +667,7 @@ def references(ls, params: ReferenceParams):
     ast_obj = _get_ast_entity(cur_tok)
 
     # Filter for all relevant parsers
-    for par in ls.all_files.values():
+    for par in all_files.values():
         if (par.lexer.tokens and
                 (cur_pkg == par.cu.package or
                     par.cu.package in imp_pkg or
@@ -589,11 +714,14 @@ def hover(ls, params: TextDocumentPositionParams):
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
 
-    try:
-        tokens  = ls.all_files[file_path].lexer.tokens
-    except KeyError:
-        ls.show_message(WAIT_PARSING)
-        return None
+    with ls.data_lock:
+        try:
+            tokens  = ls.all_files[file_path].lexer.tokens
+        except KeyError:
+            ls.window_show_message(
+                ShowMessageParams(type=MessageType.Info,
+                                  message=WAIT_PARSING))
+            return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col)
 
@@ -644,11 +772,14 @@ def rename(ls, params: RenameParams):
     uri         = params.text_document.uri
     file_path   = _get_path(uri)
 
-    try:
-        tokens  = ls.all_files[file_path].lexer.tokens
-    except KeyError:
-        ls.show_message(WAIT_PARSING)
-        return None
+    with ls.data_lock:
+        try:
+            tokens  = ls.all_files[file_path].lexer.tokens
+        except KeyError:
+            ls.window_show_message(
+                ShowMessageParams(type=MessageType.Info,
+                                  message=WAIT_PARSING))
+            return None
 
     cur_tok     = _get_token(tokens, cursor_line, cursor_col, greedy=True)
     new_text    = params.new_name
@@ -664,8 +795,11 @@ def rename(ls, params: RenameParams):
     # Exit if parsing is set to partial or not set at all, as the default is
     # partial parsing.
     if ls.parse_partial is True:
-        ls.show_message("TRLC: Rename symbol is only available \
-                        if parsing is set to 'full'.")
+        ls.window_show_message(
+            ShowMessageParams(
+                type=MessageType.Warning,
+                message="TRLC: Rename symbol is only available "
+                        "if parsing is set to 'full'."))
         return WorkspaceEdit(document_changes=files_changes)
 
     # Exit if the current token is not legitimate for renaming
@@ -673,7 +807,10 @@ def rename(ls, params: RenameParams):
             cur_tok.kind not in ("IDENTIFIER", "DOT") or
             isinstance(cur_tok.ast_link, (trlc.ast.Builtin_Type,
                                           trlc.ast.Builtin_Function))):
-        ls.show_message("TRLC: Only names can be renamed excluding builtins.")
+        ls.window_show_message(
+            ShowMessageParams(
+                type=MessageType.Warning,
+                message="TRLC: Only names can be renamed excluding builtins."))
         return WorkspaceEdit(document_changes=files_changes)
 
     # Check if there are any errors in TRLC
@@ -683,8 +820,11 @@ def rename(ls, params: RenameParams):
 
     # Prompt the user if errors are detected and exit with no changes made
     if not is_valid:
-        ls.show_message("TRLC: Resolve errors or undo if errors occurred \
-                        after renaming.")
+        ls.window_show_message(
+            ShowMessageParams(
+                type=MessageType.Warning,
+                message="TRLC: Resolve errors or undo if errors occurred "
+                        "after renaming."))
         return WorkspaceEdit(document_changes=files_changes)
 
     # Find all references to the symbol being renamed
@@ -711,46 +851,57 @@ def rename(ls, params: RenameParams):
 
 @trlc_server.feature(
     TEXT_DOCUMENT_SEMANTIC_TOKENS_FULL,
-    SemanticTokensLegend(token_types=["operator"], token_modifiers=[]),
+    SemanticTokensLegend(token_types=SEMANTIC_TOKEN_TYPES, token_modifiers=[]),
 )
 def semantic_tokens(ls: TrlcLanguageServer, params: SemanticTokensParams):
     uri = params.text_document.uri
-    doc = ls.workspace.get_document(uri)
+    file_path = _get_path(uri)
 
-    if not doc.source:
-        return SemanticTokens(data=[])
+    # Reuse tokens from the last parse when available (provides AST-aware
+    # type classification for IDENTIFIER tokens).
+    with ls.data_lock:
+        parsed = ls.all_files.get(file_path)
+    if parsed and parsed.lexer.tokens:
+        all_tokens = parsed.lexer.tokens
+    else:
+        # Fallback: lex the file independently (no AST links available).
+        # IDENTIFIER tokens are skipped in this path since their semantic type
+        # cannot be determined without the AST.
+        doc = ls.workspace.get_text_document(uri)
+        if not doc.source:
+            return SemanticTokens(data=[])
+        mh = trlc.errors.Message_Handler()
+        lexer = trlc.lexer.TRLC_Lexer(mh, uri, doc.source)
+        all_tokens = []
+        while True:
+            try:
+                tok = lexer.token()
+            except trlc.errors.TRLC_Error:
+                tok = None
+            if tok is None:
+                break
+            all_tokens.append(tok)
 
-    mh = trlc.errors.Message_Handler()
-    lexer = trlc.lexer.TRLC_Lexer(mh, uri, doc.source)
-    tokens = []
-    while True:
-        try:
-            tok = lexer.token()
-        except trlc.errors.TRLC_Error:
-            tok = None
-        if tok is None:
-            break
-        tokens.append(tok)
-
-    tokens = [token
-              for token in tokens
-              if token.kind == "OPERATOR"]
-
+    # Encode tokens in LSP semantic token delta format.
     # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens
-
     cur_line = 1
     cur_col  = 0
     data     = []
-    for token in tokens:
+    for token in all_tokens:
+        sem_type = _get_token_semantic_type(token)
+        if sem_type is None:
+            continue
+
         delta_line = token.location.line_no - cur_line
         cur_line   = token.location.line_no
         if delta_line > 0:
             delta_start = token.location.col_no - 1
             cur_col     = token.location.col_no - 1
         else:
-            delta_start = token.location.col_no - cur_col
-            cur_col     = token.location.col_no - cur_col
-        length = token.location.start_pos - token.location.end_pos + 1
-        data += [delta_line, delta_start, length, 0, 0]
+            delta_start = token.location.col_no - 1 - cur_col
+            cur_col     = token.location.col_no - 1
+        length = token.location.end_pos - token.location.start_pos + 1
+        assert length > 0
+        data += [delta_line, delta_start, length, sem_type, 0]
 
     return SemanticTokens(data=data)
