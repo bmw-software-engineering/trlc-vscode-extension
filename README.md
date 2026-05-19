@@ -5,11 +5,6 @@ features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
-The language server (`trlc_lsp`) that powers this extension is also
-available as a **standalone Python package**, so you can use it with
-any LSP-capable editor such as Neovim, Emacs, or Helix — see
-[trlc_lsp/README.md](trlc_lsp/README.md).
-
 ## Installation
 
 1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
@@ -24,6 +19,29 @@ manual `pip install` is needed.
 
 **Reinstalling the extension?** Press `F1` and run: `TRLC: Reset Setup`
 once so that dependencies are re-installed cleanly.
+
+## Use with other editors
+
+The `trlc_lsp` server is a standalone Python package that works with any
+LSP-capable editor.
+
+### CLion and other JetBrains IDEs
+
+A ready-made [lsp4ij](https://github.com/redhat-developer/lsp4ij) template is bundled in [`lsp4ij-template/`](lsp4ij-template/) and is also attached to every [GitHub Release](https://github.com/bmw-software-engineering/trlc-vscode-extension/releases/latest) as `lsp4ij-template.zip`. Full setup and configuration instructions are in [lsp4ij-template/README.md](lsp4ij-template/README.md).
+
+**Quick start:**
+1. Install the **lsp4ij** plugin in your JetBrains IDE.
+2. Open **Settings → Languages & Frameworks → Language Servers**.
+3. Click **[+] → New Language Server → Import from custom template...** and
+   select the `lsp4ij-template/` folder (or the downloaded `lsp4ij-template.zip`).
+4. Confirm — on first file open lsp4ij automatically downloads and installs
+   the `trlc_lsp` wheel from GitHub Releases, with a local `trlc_lsp*.whl`
+   in your home directory as a fallback.
+
+### Neovim, Emacs, Helix, and other LSP clients
+
+Install the server as a pip package and point your editor's LSP client at it.
+See [trlc_lsp/README.md](trlc_lsp/README.md) for details.
 
 ## How to switch from partial (default) to full parsing.
 
@@ -49,54 +67,6 @@ take effect.
 
 **Note:** The last step is necessary as Visual Studio Code applies the setting only
 when a change is made in a file.
-
-## Development
-
-### Dependencies
-
-All Python runtime dependencies are bundled automatically into `python-deps/`
-during the first extension activation:
-
-| Package | Purpose | Bundled |
-|---------|---------|------|
-| [pygls](https://pypi.org/project/pygls) | LSP framework | yes, auto-installed |
-| [lsprotocol](https://pypi.org/project/lsprotocol) | LSP type definitions | yes, auto-installed |
-| [trlc](https://github.com/bmw-software-engineering/trlc) | TRLC parser and type checker | yes, auto-installed |
-| [cvc5](https://cvc5.github.io) | SMT solver for formal verification | yes, via trlc/PyVCG |
-
-CVC5 is pulled in transitively by `trlc` (via the `PyVCG` package) so
-no separate cvc5 install step is required.
-
-### Build from source
-
-1. Make sure you have `Node.js` installed. You will likely need to
-   upgrade from the system installed one on Debian/Ubuntu (as root):
-
-   ```bash
-   cd ~
-   curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
-   sudo bash /tmp/nodesource_setup.sh
-   sudo apt-get install -y nodejs
-   ```
-
-2. Install npm dependencies and build:
-
-   ```bash
-   make build
-   ```
-   **OR**
-   ```bash
-   make install
-   ```
-   to build and automatically install the extension.
-
-### Run extension in debugger mode
-
-1. Open the source code in VS Code.
-2. Run `npm install` in this folder.
-3. Open debug view (ctrl + shift + D).
-4. Select Server + Client and press F5.
-
 
 ## Copyright and License
 

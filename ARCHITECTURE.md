@@ -1,7 +1,6 @@
 # Architecture
 
-This document describes the internal structure of the TRLC VSCode Extension and
-its bundled language server (`trlc_lsp`).
+This document describes the internal structure of the TRLC VSCode Extension and its bundled language server (`trlc_lsp`).
 
 ---
 
@@ -24,8 +23,7 @@ VS Code (editor)
 ```
 
 The client is responsible for lifecycle management (starting/stopping the
-server, installing Python dependencies) and for forwarding editor events to the
-server. All TRLC-specific logic lives in the Python server process.
+server, installing Python dependencies) and for forwarding editor events to the server. All TRLC-specific logic lives in the Python server process.
 
 ---
 
@@ -165,3 +163,52 @@ the lock and release it immediately before doing any real work.
 
 Rename is only available in full-parse mode, because partial mode does not
 guarantee that all reference sites are known.
+
+---
+
+## Development
+
+### Prerequisites
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Python | 3.8 – 3.12 | Running the language server |
+| Node.js | 18+ | Building the VS Code extension |
+| npm | bundled with Node.js | Installing JS dependencies |
+
+On Debian/Ubuntu the system Node.js is often too old; upgrade it (as root):
+
+```bash
+curl -sL https://deb.nodesource.com/setup_18.x -o /tmp/nodesource_setup.sh
+sudo bash /tmp/nodesource_setup.sh
+sudo apt-get install -y nodejs
+```
+
+### Python runtime dependencies
+
+All Python dependencies are auto-installed into `<extensionDir>/python-deps/`
+on first activation — no manual `pip install` is needed during development
+unless you run the server directly.
+
+| Package | Purpose |
+|---|---|
+| [pygls](https://pypi.org/project/pygls) | LSP framework |
+| [lsprotocol](https://pypi.org/project/lsprotocol) | LSP type definitions |
+| [trlc](https://github.com/bmw-software-engineering/trlc) | TRLC parser and type checker |
+| [cvc5](https://cvc5.github.io) | SMT solver (pulled in transitively via trlc/PyVCG) |
+
+### Build from source
+
+```bash
+make build     # npm install + npx vsce package  →  *.vsix
+# or
+make install   # build + install the .vsix into VS Code
+```
+
+### Run in debugger mode
+
+1. Open the repository in VS Code.
+2. Run `npm install` in the root folder.
+3. Open the **Run and Debug** view (`Ctrl+Shift+D`).
+4. Select **Server + Client** and press **F5**.
+
