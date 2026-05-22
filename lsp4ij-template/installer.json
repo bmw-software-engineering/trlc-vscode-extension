@@ -28,12 +28,12 @@
                 "windows": [
                     "powershell",
                     "-Command",
-                    "$url = (Invoke-RestMethod 'https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest').assets | Where-Object { $_.name -like '*.whl' } | Select-Object -First 1 -ExpandProperty browser_download_url; pip install --upgrade --target \"$env:USERPROFILE\\.lsp4ij\\trlc-lsp\" $url"
+                    "$r = try { Invoke-RestMethod 'https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest' } catch { $null }; $url = if ($r) { $r.assets | Where-Object { $_.name -like '*.whl' } | Select-Object -First 1 -ExpandProperty browser_download_url } else { $null }; if (-not $url) { $url = Get-ChildItem \"$USER_HOME$\\trlc_lsp*.whl\" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName }; if ($url) { pip install --upgrade --target \"$USER_HOME$\\.lsp4ij\\trlc-lsp\" $url }"
                 ],
                 "default": [
                     "sh",
                     "-c",
-                    "pip3 install --upgrade --target $USER_HOME$/.lsp4ij/trlc-lsp \"$(curl -s https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest | python3 -c 'import json,sys; d=json.load(sys.stdin); assets=d.get(\"assets\",[]); url=next((a[\"browser_download_url\"] for a in assets if a[\"name\"].endswith(\".whl\")),None); sys.exit(1) if not url else print(url)')\""
+                    "WHL=$(curl -sf https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest | python3 -c 'import json,sys; d=json.load(sys.stdin); assets=d.get(\"assets\",[]); url=next((a[\"browser_download_url\"] for a in assets if a[\"name\"].endswith(\".whl\")),None); print(url or \"\")' 2>/dev/null); [ -z \"$WHL\" ] && WHL=$(ls $USER_HOME$/trlc_lsp*.whl 2>/dev/null | sort -V | tail -n 1); [ -n \"$WHL\" ] && pip3 install --upgrade --target $USER_HOME$/.lsp4ij/trlc-lsp \"$WHL\""
                 ]
             }
         }

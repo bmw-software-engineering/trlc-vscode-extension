@@ -3,6 +3,7 @@ name: TRLC Extension Build
 on:
   push:
     branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -16,12 +17,12 @@ jobs:
     name: Build Package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Python 3.9
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.9"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 18
       - name: "Install dependencies"
@@ -32,14 +33,54 @@ jobs:
       - name: "Build package"
         run: |
           npx vsce package
+      - name: "Build wheel"
+        run: |
+          python3 -m pip install build
           python3 -m build --wheel
+          cp dist/*.whl .
+      - name: "Package lsp4ij-template"
+        run: |
+          zip -r lsp4ij-template.zip lsp4ij-template/
       - name: "Archive vsix"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: package
           path: "*.vsix"
       - name: "Archive wheel"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lsp-wheel
-          path: "dist/*.whl"
+          path: "trlc_lsp*.whl"
+      - name: "Archive lsp4ij-template"
+        uses: actions/upload-artifact@v7
+        with:
+          name: lsp4ij-template
+          path: "lsp4ij-template.zip"
+
+  release:
+    name: Upload Release Assets
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: "Download vsix artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: package
+      - name: "Download wheel artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: lsp-wheel
+      - name: "Download lsp4ij-template artifact"
+        uses: actions/download-artifact@v8
+        with:
+          name: lsp4ij-template
+      - name: "Upload release assets"
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            *.vsix
+            trlc_lsp*.whl
+            lsp4ij-template.zip
