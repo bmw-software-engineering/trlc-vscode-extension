@@ -391,3 +391,31 @@ Additionally, the actual need for a second Language Server Protocol (LSP) must b
 - [LSP Specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/)
 - [Pygls GitHub](https://github.com/openlawlibrary/pygls)
 - [VSCode Extension Anatomy](https://code.visualstudio.com/api/get-started/extension-anatomy)
+
+## Updating `package-lock.json`
+
+Keep `package-lock.json` in sync with `package.json` and commit both files together.
+
+### Version-only change (e.g., `3.1.0` → `3.1.1`)
+
+If only the extension version changed and dependency declarations are unchanged:
+
+```bash
+npm install --package-lock-only
+```
+
+### Dependency changes
+
+If `dependencies` or `devDependencies` changed in `package.json`, regenerate the lock file:
+
+```bash
+npm install
+```
+
+### Verify
+
+```bash
+git diff -- package.json package-lock.json
+```
+
+Expected result: both files show the same top-level project version and the lock file reflects any dependency updates.
