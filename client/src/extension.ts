@@ -73,7 +73,7 @@ async function setup(context: ExtensionContext): Promise<void> {
         try {
             await installPythonPackage(targetDirectory, 'lsprotocol>=2025.0.0');
             await installPythonPackage(targetDirectory, 'pygls==2.1.1');
-            await installPythonPackage(targetDirectory, 'trlc>=2.0.4');
+            await installPythonPackage(targetDirectory, 'trlc>=2.0.5');
         } catch (error) {
             console.error("Setup failed during package installation", error);
         }
