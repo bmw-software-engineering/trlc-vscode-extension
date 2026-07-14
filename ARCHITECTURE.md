@@ -69,7 +69,7 @@ On first activation `setup()` installs three packages into
 
 - `lsprotocol>=2025.0.0`
 - `pygls==2.1.1`
-- `trlc>=2.0.4`
+- `trlc>=3.0.0`
 
 `cvc5` is pulled in transitively by `trlc` via `PyVCG`.
 

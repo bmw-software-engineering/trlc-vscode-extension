@@ -1,3 +1,8 @@
+clean:
+	rm -rf dist/ build/ *.vsix *.egg-info/ __pycache__/ .pytest_cache/
+	rm -rf trlc_lsp/__pycache__/
+	rm -rf client/out/ client/node_modules/
+
 lint: style
 	@python3 -m pylint --rcfile=pylint3.cfg \
 		--reports=no \
@@ -9,7 +14,7 @@ style:
 install-python-deps:
 	python3 -m pip install -r requirements_dev.txt
 
-build:
+build: clean
 	npm install
 	npx vsce package
 	python3 -m build --wheel
