@@ -6,7 +6,7 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 ## [3.2.0] — 2026-07-14
 
----
+- Fix support for VSCode v1.105 till latest release
 
 ## [3.1.0] — 2026-03-11
 
