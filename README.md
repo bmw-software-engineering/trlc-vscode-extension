@@ -5,12 +5,20 @@ features like syntax highlighting, auto completion and error checking
 for TRLC files. Get more information about
 [TRLC](https://github.com/bmw-software-engineering/trlc/).
 
+## Requirements
+
+- **VSCode**: >= 1.75.0 (recommended: >= 1.85.0 for best compatibility)
+- **Python**: 3.8 <= Python <= 3.12
+- **Node.js**: >= 20.0.0 (for building from source)
+
 ## Installation
 
 1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
 2. Download the `*.vsix` file under the `Assets` tab of the [latest Release](https://github.com/bmw-software-engineering/trlc-vscode-extension/releases/latest) of the extension.
 3. Press `F1` in VSCode, type `Extensions: Install from VSIX...` and install the extension.
 4. If it is not working out of the box, go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
+
+**Note for developers**: This project requires Node.js >= 20.0.0 for building. Use `nvm install 20 && nvm use 20` or see `.nvmrc` for the required version.
 
 On first use, the extension automatically installs all required Python
 dependencies (`pygls`, `trlc`, and `lsprotocol`) into an
