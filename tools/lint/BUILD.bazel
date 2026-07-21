@@ -1,0 +1,57 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+
+"""Definition of the linter binaries.
+
+In its own package so builds that don't request lint don't eagerly fetch
+the pylint binary/dependencies.
+"""
+
+load("@npm//:eslint/package_json.bzl", eslint_bin = "bin")
+load("@rules_python//python/entry_points:py_console_script_binary.bzl", "py_console_script_binary")
+
+package(default_visibility = ["//:__subpackages__"])
+
+eslint_bin.eslint_binary(
+    name = "eslint",
+    # rules_lint's bundled formatter script (lint/js/eslint.stylish-
+    # formatter.js) does a bare `require("chalk")` with no dep of its own
+    # wired for it - it expects the consuming repo to make chalk
+    # resolvable. Added as a real devDependency for exactly this.
+    data = ["//:node_modules/chalk"],
+)
+
+py_console_script_binary(
+    name = "pylint",
+    pkg = "@pip//pylint:pkg",
+    # rules_lint's pylint_action doesn't wire PYTHONPATH from the linted
+    # target's own deps (see lint/pylint.bzl - it only passes source files
+    # to the pylint action). The only way for pylint to resolve imports of
+    # the server package and its runtime/test deps is for them to be on
+    # this binary's own PYTHONPATH via standard py_binary dep propagation.
+    deps = [
+        "//src/server",
+        "@pip//lsprotocol",
+        "@pip//pygls",
+        "@pip//pytest",
+        "@pip//pytest_lsp",
+        "@pip//trlc",
+    ],
+)

@@ -1,3 +1,22 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 name: TRLC Extension CI
 
 on:
@@ -12,18 +31,34 @@ permissions:
 jobs:
 
   lint:
-    name: PyLint
+    uses: ./.github/workflows/reusable-format-lint.yml
+
+  python-test:
+    uses: ./.github/workflows/reusable-python-test.yml
+
+  ts-test:
+    uses: ./.github/workflows/reusable-ts-test.yml
+
+  e2e-test:
+    uses: ./.github/workflows/reusable-e2e-test.yml
+
+  # Verifies the actual vsce package / wheel build steps succeed on every
+  # PR - reusable-e2e-test.yml only assembles an unzipped equivalent
+  # (extension_bundle + vsix_static_files, missing //docs/assets) and never
+  # exercises `bazel build //:wheel` at all, so packaging regressions were
+  # previously caught only at tag-push release time (build.yml).
+  package:
+    needs: [lint, python-test, ts-test]
+    uses: ./.github/workflows/reusable-package-build.yml
+
+  verify-version:
+    name: Verify Version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: bazel-contrib/setup-bazel@0.19.0
         with:
-          python-version: "3.9"
-      - name: Install dependencies
-        run: |
-          python3 -m pip install --upgrade pip --break-system-packages
-          python3 -m pip install -r requirements_dev.txt --break-system-packages
-      - name: Executing linter
-        run: |
-          make lint
+          disk-cache: true
+          repository-cache: true
+      - name: Verify Version
+        run: bazel run //tools/version_synch:sync_version -- --check

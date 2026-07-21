@@ -1,0 +1,3 @@
+node_modules
+src/client/out
+src/client/node_modules

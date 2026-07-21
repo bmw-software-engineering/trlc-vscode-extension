@@ -4,6 +4,57 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 ---
 
+## [Unreleased]
+
+### New Features
+
+- **Bazel-aware parsing** — New `bazel` parse mode scopes a file to its owning Bazel
+  target's full transitive dependency closure (via `bazel query`), including
+  cross-repository `spec`/`deps` targets. Falls back to directory mode when no Bazel
+  workspace/target is found, with status-bar indication when that happens.
+- **Per-scope symbol table isolation** — Each parse scope (workspace/directory/repo/Bazel
+  target) now gets its own isolated symbol table, eliminating spurious "duplicate
+  definition" diagnostics between same-named files in different directories.
+- **Status bar item** — Shows live parse progress, the active file's parse mode, and
+  its scope's file count; click to browse and open every file currently in scope.
+- **`trlcServer.logLevel: debug`** now also enables wire-level tracing, with a stable
+  trace client ID so logs persist across language server restarts.
+- **Config changes apply immediately** — Changing `trlcServer.parseMode`,
+  `trlcServer.bazel.ruleClasses`, etc. now re-scopes and reparses open files right away,
+  no window reload needed.
+- **External file changes trigger a reparse** — Files changed outside the editor
+  (`git checkout`, other tools) are now picked up via `workspace/didChangeWatchedFiles`
+  instead of being silently ignored.
+- **Python 3.10–3.13 compatibility** — the server is now tested against all four
+  versions, each with its own pinned `requirements_dev_3_1x.txt` lockfile.
+- **Bazel build system** — build, lint, format, and test now run through Bazel
+  (`MODULE.bazel`/`BUILD.bazel`), replacing the old `Makefile`-based setup.
+- **CI split into reusable workflows** — Python tests, TS tests, format/lint, copyright check and
+  e2e tests each run as their own reusable workflow, matrixed across Python
+  versions and reused by both `build.yml` and the new `publish.yml`.
+- **Integration and e2e test coverage added** — `tests/standalone/` drives the real
+  LSP server process end-to-end via `pytest-lsp` (no mocking) across diagnostics,
+  completion, navigation, rename, code actions, semantic tokens, and Bazel mode;
+  `tests/e2e/` adds a VS Code extension smoke test.
+
+### Breaking Changes
+
+- **`trlcServer.scope` and "TRLC: Select Workspace Folder" removed** — superseded by
+  per-folder/directory/Bazel scoping, which now isolates parsing per workspace folder,
+  directory, or Bazel target on its own.
+
+### Bug Fixes
+
+- **Go to Definition (Ctrl+click/F12) fixed and hardened** — was never registered for
+  plain `textDocument/definition` (only "Go to Type Definition"); now also resolves
+  and navigates cross-package references that TRLC itself left unresolved due to an
+  unrelated parse error elsewhere in the file, instead of crashing or doing nothing.
+- **`Package.` autocomplete improved** — now suggests record instances (not just
+  types), filters candidates to the target field's declared type, and keeps working
+  while the file has a syntax error anywhere in it (including mid-edit).
+
+---
+
 ## [3.2.0] — 2026-07-14
 
 - Fix support for VSCode v1.105 till latest release
@@ -13,9 +64,9 @@ All notable changes to the TRLC VSCode Extension are documented here.
 ### New Features
 
 - **Standalone LSP server** — The Python language server has been extracted into an
-  independently installable package (`trlc_lsp`). Any LSP-capable editor (Neovim,
+  independently installable package (`server`, distributed as `trlc-lsp`). Any LSP-capable editor (Neovim,
   Emacs, Helix, …) can now use it directly: `pip install . && trlc-lsp`.
-  See [`trlc_lsp/README.md`](trlc_lsp/README.md) for editor configuration examples.
+  See [`docs/LSP_SERVER_GUIDE.md`](docs/LSP_SERVER_GUIDE.md) for editor configuration examples.
 
 - **`pyproject.toml`** — The server package now ships a `pyproject.toml` with a
   declared `trlc-lsp` console-script entry point and pinned dependency versions.

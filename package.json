@@ -1,16 +1,27 @@
 {
     "name": "trlc-vscode-extension",
-    "version": "3.2.0",
+    "version": "4.0.0",
     "publisher": "bmw-group",
     "author": {
         "name": "BMW Group"
     },
     "engines": {
-        "node": ">=20.0.0",
-        "npm": ">=10.0.0",
-        "vscode": ">=1.75.0"
+        "node": ">=22.13.0",
+        "vscode": ">=1.91.0"
     },
-    "icon": "assets/BMW_White-Colour_RGB.png",
+    "packageManager": "pnpm@11.13.1",
+    "icon": "docs/assets/BMW_White-Colour_RGB.png",
+    "files": [
+        "package.json",
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md",
+        "trlc-grammar.json",
+        "trlc-language-configuration.json",
+        "docs/assets/BMW_White-Colour_RGB.png",
+        "src/client/out/extension.js",
+        "src/server/**/*.py"
+    ],
     "license": "GPL-3.0-or-later",
     "displayName": "TRLC VSCode Extension",
     "description": "VSCode integration for the Python TRLC reference implementation",
@@ -36,28 +47,29 @@
         "ms-python.python"
     ],
     "devDependencies": {
-        "@types/node": "^20.11.0",
-        "@types/vscode": "^1.75.0",
-        "@typescript-eslint/eslint-plugin": "^7.12.0",
-        "@typescript-eslint/parser": "^7.12.0",
+        "@eslint/js": "^10.0.1",
+        "@types/mocha": "^10.0.10",
+        "@types/node": "^22.13.0",
+        "@types/sinon": "^17.0.4",
+        "@types/vscode": "^1.91.0",
+        "@vscode/test-electron": "^3.0.0",
         "@vscode/vsce": "^3.9.2",
-        "esbuild": "^0.28.1",
-        "eslint": "^8.57.0",
-        "typescript": "^5.4.0"
+        "chalk": "^4.1.2",
+        "eslint": "^10.7.0",
+        "mocha": "^11.7.5",
+        "sinon": "^19.0.2",
+        "ts-node": "^10.9.2",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.64.0"
     },
     "dependencies": {
-        "vscode-languageclient": "^8.1.0"
+        "vscode-languageclient": "^10.1.0"
     },
     "scripts": {
-        "compile": "npm run check-types && node esbuild.js",
-        "check-types": "tsc --noEmit",
-        "watch": "npm-run-all -p watch:*",
-        "watch:esbuild": "node esbuild.js --watch",
-        "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-        "vscode:prepublish": "npm run package",
-        "package": "npm run check-types && node esbuild.js --production"
+        "test": "mocha",
+        "test:e2e": "ts-node tests/e2e/runTest.ts"
     },
-    "main": "client/out/extension",
+    "main": "src/client/out/extension",
     "activationEvents": [
         "onLanguage:TRLC"
     ],
@@ -87,17 +99,26 @@
             {
                 "command": "extension.resetState",
                 "title": "TRLC: Reset Setup"
+            },
+            {
+                "command": "extension.showTrlcOutput",
+                "title": "TRLC: Show Output"
+            },
+            {
+                "command": "extension.showTrlcFilesInScope",
+                "title": "TRLC: Show Files In Scope"
             }
         ],
         "configuration": {
             "type": "object",
             "title": "trlc-vscode-extension server configuration",
             "properties": {
-                "trlcServer.parsing": {
-                    "scope": "window",
+                "trlcServer.parseMode": {
+                    "scope": "resource",
                     "type": "string",
-                    "default": "partial",
-                    "description": "Enable/Disable partial parsing. Set to full for complete parsing."
+                    "enum": ["workspace", "directory", "repo", "bazel"],
+                    "default": "workspace",
+                    "description": "Controls file discovery strategy. workspace: open files + includes (fast, interactive); directory: single directory non-recursive (monorepos); repo: all .rsl/.trlc files (needed for rename/references); bazel: Bazel TRLC targets (requires WORKSPACE/MODULE.bazel)."
                 },
                 "trlcServer.verify": {
                     "scope": "window",
@@ -113,7 +134,59 @@
                     },
                     "default": [],
                     "description": "Regex patterns matched against directory names to exclude from TRLC include scanning. The pattern `^bazel-.*$` is always applied by default."
+                },
+                "trlcServer.bazel.executable": {
+                    "scope": "resource",
+                    "type": "string",
+                    "default": "bazel",
+                    "description": "Path to the bazel executable for parseMode: bazel."
+                },
+                "trlcServer.bazel.ruleClasses": {
+                    "scope": "resource",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": ["_trlc_specification", "_trlc_requirement", "_trlc_rst", "_score_requirements_rule", "feature_requirements", "component_requirements", "assumed_system_requirements", "fmea"],
+                    "description": "Bazel rule class names (internal/private rule names from trlc.bzl) to include in parseMode: bazel discovery. Customize for third-party TRLC macros."
+                },
+                "trlcServer.bazel.useSharedServer": {
+                    "scope": "resource",
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, reuse the default Bazel server (faster but may interfere with your build). If false, use a dedicated output_base per workspace."
+                },
+                "trlcServer.bazel.queryTimeoutSeconds": {
+                    "scope": "resource",
+                    "type": "number",
+                    "default": 180,
+                    "description": "Timeout (seconds) for a single 'bazel query' call. The first query against a fresh/cold Bazel server (the default unless useSharedServer is true) can take much longer than a warm-server query, especially on large repos or slow filesystems."
+                },
+                "trlcServer.trace.server": {
+                    "scope": "window",
+                    "type": "string",
+                    "enum": ["off", "messages", "verbose"],
+                    "default": "off",
+                    "description": "Traces communication between VS Code and the TRLC language server. Set to 'verbose' and check the '[pygls] TrlcLanguageServer' Output channel to diagnose why a file isn't parsing as expected."
+                },
+                "trlcServer.logLevel": {
+                    "scope": "window",
+                    "type": "string",
+                    "enum": ["debug", "info", "warning", "error"],
+                    "default": "warning",
+                    "description": "Sets the verbosity of TRLC's diagnostic logging (client and server), shown in the '[pygls] TrlcLanguageServer' output channel and written to a rotating log file. This is separate from Trlc Server > Trace: Server, which only traces the LSP wire protocol."
+                },
+                "trlcServer.hover.descriptionComponent": {
+                    "scope": "resource",
+                    "type": "string",
+                    "default": "description",
+                    "description": "Component name whose string value is shown on hover when hovering a reference to a record object (e.g. the target of a derived_from entry). Set to an empty string to disable. Only affects object instances - hovering a type/tuple/enum name always shows its own TRLC RSL doc comment, independent of this setting."
                 }
+            }
+        },
+        "configurationDefaults": {
+            "[TRLC]": {
+                "editor.wordBasedSuggestions": "off"
             }
         }
     }

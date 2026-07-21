@@ -1,0 +1,123 @@
+"""Bazel dependencies for formatting, linting, and packaging.
+
+Bazel builds both halves of the extension hermetically: the Python wheel
+(rules_python's py_wheel) and the VSIX (aspect_rules_js/aspect_rules_ts/
+aspect_rules_esbuild), plus lints/formats both (aspect_rules_lint).
+"""
+
+module(name = "trlc_vscode_extension")
+
+# Direct dep (not just pulled in transitively by the rulesets below) so
+# tests/e2e/BUILD.bazel's select() on @platforms//os is actually visible
+# from this module - bzlmod doesn't re-export transitive deps' repo names.
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "aspect_rules_lint", version = "2.7.1")
+bazel_dep(name = "rules_python", version = "1.8.5")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
+bazel_dep(name = "aspect_rules_js", version = "3.2.3")
+bazel_dep(name = "aspect_rules_ts", version = "3.9.1")
+bazel_dep(name = "aspect_rules_esbuild", version = "0.26.0")
+bazel_dep(name = "bazel_lib", version = "3.5.0")
+bazel_dep(name = "rules_nodejs", version = "6.7.5")
+bazel_dep(name = "score_tooling", version = "1.1.2")
+
+# On Windows, a js_binary tool (cfg = "exec", e.g. the ts_project options
+# validator, the tsc/tsc_worker transpiler, or the esbuild launcher) can
+# build under a different bazel-out config dir ("*-opt-exec-*") than the
+# rule invoking it as a tool ("*-fastbuild"), and Windows js_binary targets
+# default to JS_BINARY__NO_RUNFILES=1 (no runfiles tree to fall back on
+# either). The calling rule passes BAZEL_BINDIR = its own (target config)
+# bindir - correct for resolving its own bin-relative arguments - but the
+# js_binary launcher script also (mis)uses that same BAZEL_BINDIR to find
+# its *own* entry point (and node wrapper) on disk, and on Windows that
+# resolves to a path under the wrong config where they were never built.
+# These four patches add a separate JS_BINARY__TOOL_BINDIR env var carrying
+# the tool's own bindir (left unset - and therefore a no-op - on
+# Linux/macOS), and set it from every caller that builds its tool in a
+# different config than itself (ts_validate_options.bzl's validator action,
+# ts_project.bzl's TsProjectCheck/TsProjectEmit actions, and esbuild.bzl's
+# launcher). Drop once fixed upstream (see third_party/UPSTREAM_ISSUE.md).
+single_version_override(
+    module_name = "aspect_rules_js",
+    patch_strip = 1,
+    patches = ["//third_party:aspect_rules_js_win_entrypoint.patch"],
+)
+
+single_version_override(
+    module_name = "aspect_rules_ts",
+    patch_strip = 1,
+    patches = [
+        "//third_party:aspect_rules_ts_tool_bindir.patch",
+        "//third_party:aspect_rules_ts_project_bindir.patch",
+    ],
+)
+
+single_version_override(
+    module_name = "aspect_rules_esbuild",
+    patch_strip = 1,
+    patches = ["//third_party:aspect_rules_esbuild_tool_bindir.patch"],
+)
+
+# Test suite runs under 3.10-3.13 (see //tests/... and
+# reusable-python-test.yml); the wheel/vsix build only ever uses the
+# default toolchain below.
+PYTHON_VERSION = "3.12"
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.10")
+python.toolchain(python_version = "3.11")
+python.toolchain(
+    is_default = True,
+    python_version = PYTHON_VERSION,
+)
+python.toolchain(python_version = "3.13")
+use_repo(python, "python_versions")
+
+# One compiled lock file per Python version (see root BUILD.bazel's
+# compile_pip_requirements targets) - mirrors trlc's MODULE.bazel, which
+# does the same rather than sharing one lock file across versions.
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+
+[
+    pip.parse(
+        hub_name = "pip",
+        python_version = "3.{}".format(python_version),
+        requirements_lock = "//:requirements_dev_3_{}.txt".format(python_version),
+    )
+    for python_version in [
+        "10",
+        "11",
+        "12",
+        "13",
+    ]
+]
+
+use_repo(pip, "pip")
+
+# Node version comes from .nvmrc - single source of truth, no duplicate pin.
+node = use_extension("@rules_nodejs//nodejs:extensions.bzl", "node")
+node.toolchain(node_version_from_nvmrc = "//:.nvmrc")
+use_repo(node, "nodejs_toolchains")
+
+npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
+npm.npm_translate_lock(
+    name = "npm",
+    pnpm_lock = "//:pnpm-lock.yaml",
+)
+use_repo(npm, "npm")
+
+rules_ts_ext = use_extension("@aspect_rules_ts//ts:extensions.bzl", "ext")
+rules_ts_ext.deps()
+use_repo(rules_ts_ext, "npm_typescript")
+
+# Pinned VSCode desktop build for //tests/e2e's smoke test - see
+# tools/vscode_test/extensions.bzl for why this isn't just
+# @vscode/test-electron's own runtime downloader.
+vscode_test = use_extension("//tools/vscode_test:extensions.bzl", "vscode_test")
+use_repo(
+    vscode_test,
+    "vscode_test_darwin_arm64",
+    "vscode_test_linux_x64",
+    "vscode_test_win32_x64",
+)

@@ -1,0 +1,23 @@
+--- a/js/private/js_binary.sh.tpl
++++ b/js/private/js_binary.sh.tpl
+@@ -97,10 +97,18 @@
+ 
+ function resolve_execroot_bin_path {
+     local short_path="$1"
++    # JS_BINARY__TOOL_BINDIR (if set by the calling action) names *this*
++    # js_binary's own bindir, which can differ from BAZEL_BINDIR - e.g. on
++    # Windows, a js_binary used as the tool of a build action builds in an
++    # "*-opt-exec-*" config while the calling action's own config (and thus
++    # the BAZEL_BINDIR it passes) is "*-fastbuild". BAZEL_BINDIR itself is
++    # left untouched here since it's also used elsewhere (e.g. to cd into
++    # the calling action's own bindir to resolve its bin-relative args).
++    local bindir="${JS_BINARY__TOOL_BINDIR:-${BAZEL_BINDIR:-$JS_BINARY__BINDIR}}"
+     if [[ "$short_path" == ../* ]]; then
+-        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/external/${short_path:3}"
++        echo "$JS_BINARY__EXECROOT/$bindir/external/${short_path:3}"
+     else
+-        echo "$JS_BINARY__EXECROOT/${BAZEL_BINDIR:-$JS_BINARY__BINDIR}/$short_path"
++        echo "$JS_BINARY__EXECROOT/$bindir/$short_path"
+     fi
+ }
+ 

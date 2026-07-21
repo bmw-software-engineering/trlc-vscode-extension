@@ -1,0 +1,91 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (e.g. v3.3.0) - must already exist as a GitHub Release"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Rebuild from tag
+    runs-on: ubuntu-latest
+    env:
+      ASPECT_DISABLE_TELEMETRY: 1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          disk-cache: true
+          repository-cache: true
+      - name: "Verify tag matches VERSION"
+        run: bazel run //tools/version_synch:sync_version -- --check-tag "${{ inputs.tag }}"
+      - name: "Build vsix and wheel"
+        run: |
+          bazel build //:vsix //:wheel
+          cp bazel-bin/trlc-vscode-extension.vsix .
+          cp bazel-bin/src/server/trlc_lsp-*.whl .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: publish-vsix
+          path: "*.vsix"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: publish-wheel
+          path: "trlc_lsp*.whl"
+
+  publish-vscode-marketplace:
+    name: Publish to VS Code Marketplace
+    needs: build
+    runs-on: ubuntu-latest
+    # Required reviewer(s) configured on this environment are the actual
+    # "confirm before this irreversible action" gate - see
+    # docs/RELEASE_AND_DEPLOYMENT.md's one-time setup checklist.
+    environment: marketplace-publish
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: publish-vsix
+      - name: "Publish to Marketplace"
+        run: npx @vscode/vsce publish --packagePath *.vsix -p "${{ secrets.VSCE_PAT }}"
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi-publish
+    permissions:
+      id-token: write # OIDC trusted publishing - no stored secret
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: publish-wheel
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

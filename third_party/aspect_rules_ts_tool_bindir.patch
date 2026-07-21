@@ -1,0 +1,38 @@
+--- a/ts/private/ts_validate_options.bzl
++++ b/ts/private/ts_validate_options.bzl
+@@ -3,6 +3,27 @@
+ load("@aspect_bazel_lib//lib:paths.bzl", "to_output_relative_path")
+ load(":ts_lib.bzl", _lib = "lib")
+ 
++def _tool_bindir_path(file):
++    """Returns the config-specific bin dir that `file` was generated under.
++
++    Derived from the File object itself (e.g. "bazel-out/k8-fastbuild/bin").
++    ctx.bin_dir.path names the *calling rule's own* configuration, which is
++    not necessarily the configuration a tool attribute (cfg = "exec", e.g.
++    our validator) was built in - on Windows those two dirs can differ
++    (validator under "*-opt-exec-*", caller under "*-fastbuild"), and the
++    js_binary launcher needs to know the tool's own dir to find its entry
++    point (passed separately as JS_BINARY__TOOL_BINDIR; BAZEL_BINDIR keeps
++    naming the caller's own dir, unchanged).
++    """
++    short_path = file.short_path
++    if short_path.startswith("../"):
++        suffix = "external/" + short_path[3:]
++    else:
++        suffix = short_path
++    if not file.path.endswith("/" + suffix):
++        fail("unexpected file layout: '%s' does not end with '/%s'" % (file.path, suffix))
++    return file.path[:-(len(suffix) + 1)]
++
+ def _validate_action(ctx, tsconfig, tsconfig_deps):
+     """Create an action to validate the ts_project attributes against the tsconfig.json properties.
+ 
+@@ -46,6 +67,7 @@
+         mnemonic = "TsValidateOptions",
+         env = {
+             "BAZEL_BINDIR": ctx.bin_dir.path,
++            "JS_BINARY__TOOL_BINDIR": _tool_bindir_path(ctx.executable.validator),
+         },
+         use_default_shell_env = True,
+     )

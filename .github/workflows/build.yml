@@ -1,11 +1,31 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 name: TRLC Extension Build
 
 on:
+  # push/pull_request to main deliberately omitted: ci.yml already gates
+  # every push/PR (lint + python-test + ts-test + e2e-test + verify-version)
+  # - duplicating those jobs here doubled CI time for no extra coverage.
+  # This workflow now only fires for tag releases and manual builds.
   push:
-    branches: [ "main" ]
     tags: [ "v*" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -13,49 +33,18 @@ permissions:
 
 jobs:
 
+  lint:
+    uses: ./.github/workflows/reusable-format-lint.yml
+
+  python-test:
+    uses: ./.github/workflows/reusable-python-test.yml
+
+  ts-test:
+    uses: ./.github/workflows/reusable-ts-test.yml
+
   package:
-    name: Build Package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.9"
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-      - name: "Install dependencies"
-        run: |
-          python3 -m pip install --upgrade pip
-          make install-python-deps
-          npm install
-      - name: "Build package"
-        run: |
-          npx vsce package
-      - name: "Build wheel"
-        run: |
-          python3 -m pip install build
-          python3 -m build --wheel
-          cp dist/*.whl .
-      - name: "Package lsp4ij-template"
-        run: |
-          zip -r lsp4ij-template.zip lsp4ij-template/
-      - name: "Archive vsix"
-        uses: actions/upload-artifact@v7
-        with:
-          name: package
-          path: "*.vsix"
-      - name: "Archive wheel"
-        uses: actions/upload-artifact@v7
-        with:
-          name: lsp-wheel
-          path: "trlc_lsp*.whl"
-      - name: "Archive lsp4ij-template"
-        uses: actions/upload-artifact@v7
-        with:
-          name: lsp4ij-template
-          path: "lsp4ij-template.zip"
+    needs: [lint, python-test, ts-test]
+    uses: ./.github/workflows/reusable-package-build.yml
 
   release:
     name: Upload Release Assets
@@ -65,6 +54,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+      - uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          disk-cache: true
+          repository-cache: true
+      - name: "Verify tag matches VERSION"
+        run: bazel run //tools/version_synch:sync_version -- --check-tag "${{ github.ref_name }}"
       - name: "Download vsix artifact"
         uses: actions/download-artifact@v8
         with:

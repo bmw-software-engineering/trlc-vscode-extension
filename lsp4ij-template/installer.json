@@ -4,17 +4,17 @@
     "executeOnStartServer": true,
     "check": {
         "exec": {
-            "name": "Check trlc_lsp is installed",
+            "name": "Check server is installed",
             "command": {
                 "windows": [
                     "cmd",
                     "/c",
-                    "if exist \"$USER_HOME$\\.lsp4ij\\trlc-lsp\\trlc_lsp\" (exit 0) else (exit 1)"
+                    "if exist \"$USER_HOME$\\.lsp4ij\\trlc-lsp\\server\" (exit 0) else (exit 1)"
                 ],
                 "default": [
                     "sh",
                     "-c",
-                    "test -d \"$USER_HOME$/.lsp4ij/trlc-lsp/trlc_lsp\""
+                    "test -d \"$USER_HOME$/.lsp4ij/trlc-lsp/server\""
                 ]
             },
             "timeout": 5000
@@ -28,12 +28,12 @@
                 "windows": [
                     "powershell",
                     "-Command",
-                    "$r = try { Invoke-RestMethod 'https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest' } catch { $null }; $url = if ($r) { $r.assets | Where-Object { $_.name -like '*.whl' } | Select-Object -First 1 -ExpandProperty browser_download_url } else { $null }; if (-not $url) { $url = Get-ChildItem \"$USER_HOME$\\trlc_lsp*.whl\" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName }; if ($url) { pip install --upgrade --target \"$USER_HOME$\\.lsp4ij\\trlc-lsp\" $url }"
+                    "$r = try { Invoke-RestMethod 'https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest' } catch { $null }; $url = if ($r) { $r.assets | Where-Object { $_.name -like '*.whl' } | Select-Object -First 1 -ExpandProperty browser_download_url } else { $null }; if (-not $url) { $url = Get-ChildItem \"$USER_HOME$\\server*.whl\" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName }; if ($url) { pip install --upgrade --target \"$USER_HOME$\\.lsp4ij\\trlc-lsp\" $url }"
                 ],
                 "default": [
                     "sh",
                     "-c",
-                    "WHL=$(curl -sf https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest | python3 -c 'import json,sys; d=json.load(sys.stdin); assets=d.get(\"assets\",[]); url=next((a[\"browser_download_url\"] for a in assets if a[\"name\"].endswith(\".whl\")),None); print(url or \"\")' 2>/dev/null); [ -z \"$WHL\" ] && WHL=$(ls $USER_HOME$/trlc_lsp*.whl 2>/dev/null | sort -V | tail -n 1); [ -n \"$WHL\" ] && pip3 install --upgrade --target $USER_HOME$/.lsp4ij/trlc-lsp \"$WHL\""
+                    "WHL=$(curl -sf https://api.github.com/repos/bmw-software-engineering/trlc-vscode-extension/releases/latest | python3 -c 'import json,sys; d=json.load(sys.stdin); assets=d.get(\"assets\",[]); url=next((a[\"browser_download_url\"] for a in assets if a[\"name\"].endswith(\".whl\")),None); print(url or \"\")' 2>/dev/null); [ -z \"$WHL\" ] && WHL=$(ls $USER_HOME$/server*.whl 2>/dev/null | sort -V | tail -n 1); [ -n \"$WHL\" ] && pip3 install --upgrade --target $USER_HOME$/.lsp4ij/trlc-lsp \"$WHL\""
                 ]
             }
         }

@@ -1,0 +1,37 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+# VSCode desktop build, darwin-arm64. Pinned version tracked in extensions.bzl.
+#
+# @vscode/test-electron's resolveCliPathFromVSCodeExecutablePath expects the
+# Electron binary *inside* the .app bundle for darwin (it derives the actual
+# CLI as "../../../Contents/Resources/app/bin/code" from whatever path it's
+# given) - so, unlike the linux-x64 "code" alias, this points at the
+# Electron binary, not a top-level launcher script.
+alias(
+    name = "code",
+    actual = "Visual Studio Code.app/Contents/MacOS/Electron",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "tree",
+    srcs = glob(["Visual Studio Code.app/**"], exclude_directories = 0),
+    visibility = ["//visibility:public"],
+)

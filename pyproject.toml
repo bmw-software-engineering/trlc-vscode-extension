@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trlc-lsp"
-version = "3.2.0"
+version = "4.0.0"
 description = "Language Server Protocol implementation for TRLC"
 readme = "README.md"
 license = "GPL-3.0-or-later"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "lsprotocol>=2025.0.0",
     "pygls==2.1.1",
@@ -16,7 +16,53 @@ dependencies = [
 ]
 
 [project.scripts]
-trlc-lsp = "trlc_lsp.__main__:main"
+trlc-lsp = "server.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["trlc_lsp*"]
+where = ["src"]
+include = ["server*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["server"]
+
+[tool.pylint.master]
+persistent = false
+
+[tool.pylint."messages control"]
+# Already enforced by ruff (see [tool.ruff.lint] select above) at
+# edit-time/pre-commit, so pylint doesn't need to catch them again in CI:
+#   unused-import        (W0611) <-> ruff F401
+#   unused-variable       (W0612) <-> ruff F841
+#   wrong-import-position (C0413) <-> ruff E402
+disable = ["unused-import", "unused-variable", "wrong-import-position"]
+
+[tool.pylint.typecheck]
+# debugpy is an optional dev-only dependency, imported lazily behind the
+# --debugpy CLI flag (see server/__main__.py) and deliberately absent from
+# the lint/runtime closure - so pylint can't resolve it and would emit a
+# spurious import-error.
+ignored-modules = ["debugpy"]
+
+[tool.pylint.reports]
+output-format = "text"
+reports = true
+
+[tool.pylint.basic]
+# Leading "_" allowed: tests use e.g. "_FakeContext"/"_FakeVSM" to mark
+# module-private stub/fake classes, same convention as leading-underscore
+# private functions.
+class-rgx = "_?([A-Z]+|[A-Z][a-z]+)(_[A-Z]+|[A-Z][a-z])*"
+# "_output_handler": legitimate module-level *mutable* state (reassigned via
+# `global` in attach_output_channel_handler); pylint otherwise treats any
+# module-level name as a constant and demands UPPER_CASE.
+good-names = ["i", "j", "k", "c", "f", "fd", "zf", "n", "ap", "rv", "mh", "sm", "wp", "ok", "ls", "fh", "_output_handler"]

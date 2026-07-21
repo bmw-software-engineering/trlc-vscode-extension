@@ -1,0 +1,25 @@
+--- a/esbuild/private/esbuild.bzl
++++ b/esbuild/private/esbuild.bzl
+@@ -407,6 +407,22 @@
+     )
+ 
+     launcher = ctx.executable.launcher or esbuild_toolinfo.launcher.files_to_run
++    launcher_executable = ctx.executable.launcher or esbuild_toolinfo.launcher.files_to_run.executable
++    if launcher_executable:
++        # See _tool_bindir_path in aspect_rules_ts's ts_validate_options.bzl
++        # for the full rationale: BAZEL_BINDIR names the *calling* rule's own
++        # bindir, which can differ from the config this launcher was built
++        # under (e.g. on Windows). JS_BINARY__TOOL_BINDIR carries the
++        # launcher's own bindir separately so the js_binary launcher can
++        # find its own entry point; BAZEL_BINDIR is left untouched since
++        # it's also used for other purposes by the launcher script.
++        launcher_short_path = launcher_executable.short_path
++        if launcher_short_path.startswith("../"):
++            launcher_suffix = "external/" + launcher_short_path[3:]
++        else:
++            launcher_suffix = launcher_short_path
++        if launcher_executable.path.endswith("/" + launcher_suffix):
++            env["JS_BINARY__TOOL_BINDIR"] = launcher_executable.path[:-(len(launcher_suffix) + 1)]
+     ctx.actions.run(
+         inputs = input_sources,
+         outputs = output_sources,

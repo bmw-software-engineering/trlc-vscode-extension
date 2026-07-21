@@ -1,0 +1,44 @@
+--- a/ts/private/ts_project.bzl
++++ b/ts/private/ts_project.bzl
+@@ -13,6 +13,25 @@
+ load(":ts_lib.bzl", "COMPILER_OPTION_ATTRS", "OUTPUT_ATTRS", "STD_ATTRS", _lib = "lib")
+ load(":ts_validate_options.bzl", _validate_lib = "lib")
+ 
++def _tool_bindir_path(file):
++    """Returns the config-specific bin dir that `file` was generated under.
++
++    ctx.bin_dir.path names the *calling rule's own* configuration, which is
++    not necessarily the configuration the tsc/tsc_worker tool (cfg = "exec")
++    was built in - on Windows those two dirs can differ, and the js_binary
++    launcher needs to know the tool's own dir to find its entry point
++    (passed separately as JS_BINARY__TOOL_BINDIR; BAZEL_BINDIR keeps naming
++    the caller's own dir, unchanged).
++    """
++    short_path = file.short_path
++    if short_path.startswith("../"):
++        suffix = "external/" + short_path[3:]
++    else:
++        suffix = short_path
++    if not file.path.endswith("/" + suffix):
++        fail("unexpected file layout: '%s' does not end with '/%s'" % (file.path, suffix))
++    return file.path[:-(len(suffix) + 1)]
++
+ # Forked from js_lib_helpers.js_lib_helpers.gather_files_from_js_providers to not
+ # include any sources; only transitive types & npm sources
+ def _gather_types_from_js_infos(targets):
+@@ -283,6 +302,7 @@
+ 
+         env = {
+             "BAZEL_BINDIR": ctx.bin_dir.path,
++            "JS_BINARY__TOOL_BINDIR": _tool_bindir_path(executable),
+         }
+ 
+         # In non-worker mode, we create the marker file by capturing stdout of the action
+@@ -366,6 +386,7 @@
+             progress_message = progress_message,
+             env = {
+                 "BAZEL_BINDIR": ctx.bin_dir.path,
++                "JS_BINARY__TOOL_BINDIR": _tool_bindir_path(executable),
+             },
+             use_default_shell_env = True,
+         )
