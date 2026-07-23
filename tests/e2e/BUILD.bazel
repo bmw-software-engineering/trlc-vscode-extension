@@ -1,0 +1,182 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+
+load("@aspect_rules_js//js:defs.bzl", "js_test")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
+load("@bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+
+package(default_visibility = ["//:__subpackages__"])
+
+# Standalone (not extending the root tsconfig.json, which hardcodes
+# rootDir: "src/client/src") - ts_project requires any rootDir set in its
+# tsconfig to match this target's own root_dir attribute exactly.
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+)
+
+ts_project(
+    name = "e2e_ts",
+    srcs = glob([
+        "*.ts",
+        "suite/*.ts",
+    ]),
+    out_dir = ".",
+    root_dir = ".",
+    source_map = True,
+    transpiler = "tsc",
+    tsconfig = ":tsconfig",
+    deps = [
+        "//:node_modules/@types/mocha",
+        "//:node_modules/@types/node",
+        "//:node_modules/@types/vscode",
+        "//:node_modules/@vscode/test-electron",
+        "//:node_modules/mocha",
+    ],
+)
+
+# An "unzipped vsix" - the same three inputs the root `:vsix` target already
+# zips (:extension_bundle, :vsix_static_files, server_sources), assembled as
+# a plain directory instead. `runTest.ts` copies this into a writable tmp
+# dir (Bazel `data` runfiles are read-only) and seeds `python-deps/` into
+# it, then points @vscode/test-electron's `extensionDevelopmentPath` at that
+# copy - see prepare.ts.
+copy_to_directory(
+    name = "extension_dev_dir",
+    srcs = [
+        "//:extension_bundle",
+        "//:vsix_static_files",
+        "//src/server:server_sources",
+    ],
+)
+
+# Real package contents for //src/server:server's *full* transitive pip
+# closure (not just its 3 direct deps - pygls/trlc pull in cattrs, attrs,
+# typing_extensions, exceptiongroup, pyvcg, cvc5 too; found via
+# `bazel query 'deps(//src/server:server)' --output=label | grep '^@pip'`),
+# merged into one directory shaped like a real
+# `pip install --target python-deps` result. Copied into the
+# extension_dev_dir copy's `python-deps/` by runTest.ts so
+# ensureDependencies() (see src/client/src/installer.ts) sees its marker
+# already present and skips a real (network) pip install.
+copy_to_directory(
+    name = "python_deps_seed",
+    srcs = [
+        "@pip//attrs",
+        "@pip//cattrs",
+        "@pip//cvc5",
+        # exceptiongroup is a backport for Python <3.11 only (no wheel for
+        # our default 3.12 toolchain) - deliberately excluded here.
+        "@pip//lsprotocol",
+        "@pip//pygls",
+        "@pip//pyvcg",
+        "@pip//trlc",
+        "@pip//typing_extensions",
+    ],
+    include_external_repositories = ["*"],
+    root_paths = ["site-packages"],
+)
+
+# Which pinned VSCode build (see MODULE.bazel / tools/vscode_test) to test
+# against, keyed by host OS.
+_VSCODE_TEST_TARGETS = select({
+    "@platforms//os:macos": [
+        "@vscode_test_darwin_arm64//:code",
+        "@vscode_test_darwin_arm64//:tree",
+    ],
+    "@platforms//os:windows": [
+        "@vscode_test_win32_x64//:code",
+        "@vscode_test_win32_x64//:tree",
+    ],
+    "//conditions:default": [
+        "@vscode_test_linux_x64//:code",
+        "@vscode_test_linux_x64//:tree",
+    ],
+})
+
+# A select() can't be embedded as a single value inside a literal dict (the
+# js_test.env attribute's type) - each branch has to itself be a complete
+# dict, which the js_test below then merges into `env` via dict union.
+_VSCODE_TEST_EXECUTABLE_ENV = select({
+    "@platforms//os:macos": {
+        "VSCODE_TEST_EXECUTABLE": "$(rlocationpath @vscode_test_darwin_arm64//:code)",
+    },
+    "@platforms//os:windows": {
+        "VSCODE_TEST_EXECUTABLE": "$(rlocationpath @vscode_test_win32_x64//:code)",
+    },
+    "//conditions:default": {
+        "VSCODE_TEST_EXECUTABLE": "$(rlocationpath @vscode_test_linux_x64//:code)",
+    },
+})
+
+# Golden-path smoke test driving the real, packaged extension inside a
+# pinned VSCode host (see MODULE.bazel / tools/vscode_test). Not part of
+# //:test (tags = ["manual"]) - Electron/GUI boot is much slower than the
+# rest of the suite, so it gets its own CI job instead
+# (.github/workflows/reusable-e2e-test.yml).
+js_test(
+    name = "vscode_smoke_e2e",
+    timeout = "long",
+    data = [
+        "e2e_smoke.json",
+        ":e2e_ts",
+        ":extension_dev_dir",
+        ":python_deps_seed",
+        "//:node_modules/@vscode/test-electron",
+        "//:node_modules/mocha",
+        "//tests:fixtures_js",
+    ] + _VSCODE_TEST_TARGETS,
+    entry_point = "runTest.js",
+    env = {
+        # rlocationpath (not location): these need to resolve at *runtime*
+        # against the runfiles tree the Node process actually sees (cwd is
+        # the runfiles root), not the execroot-relative bazel-out path
+        # $(location) would give.
+        "EXTENSION_DEV_DIR": "$(rlocationpath :extension_dev_dir)",
+        "PYTHON_DEPS_SEED": "$(rlocationpath :python_deps_seed)",
+    } | _VSCODE_TEST_EXECUTABLE_ENV,
+    # Electron needs a real display even with --no-sandbox; Bazel test
+    # actions otherwise run with a stripped environment. In CI this is an
+    # Xvfb display (see .github/workflows/reusable-e2e-test.yml); locally
+    # it's whatever X11/Wayland display (e.g. WSLg) the host provides.
+    env_inherit = [
+        "DISPLAY",
+        "XAUTHORITY",
+        "WAYLAND_DISPLAY",
+        # prepare.ts falls back to a hardcoded "/usr/bin/python3" when this
+        # is unset - fine on Linux (already 3.12) but macOS's system stub is
+        # far too old / ABI-mismatched with the cp312-built python-deps/
+        # (see reusable-e2e-test.yml, which sets this to a real 3.12).
+        "E2E_PYTHON_EXECUTABLE",
+    ],
+    # The pinned VSCode build is a ~150 MB external-repo tree - copying it
+    # into the output tree (aspect_rules_js's default for cross-package
+    # data) would be wasteful; keep it as a plain runfiles symlink instead
+    # (this is the documented escape hatch for exactly this case).
+    no_copy_to_bin = _VSCODE_TEST_TARGETS,
+    # "no-sandbox"/"local": Electron needs the host's real X11 socket
+    # (/tmp/.X11-unix) - Bazel's sandbox gives test actions a private /tmp,
+    # which hides it even with DISPLAY inherited (see env_inherit above).
+    tags = [
+        "local",
+        "manual",
+        "no-sandbox",
+    ],
+)

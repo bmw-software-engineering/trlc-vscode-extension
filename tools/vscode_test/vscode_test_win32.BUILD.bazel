@@ -1,0 +1,38 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+# VSCode desktop build, win32-x64. Pinned version tracked in extensions.bzl.
+#
+# Unlike the linux-x64 tarball (nested under "VSCode-linux-x64/") or the
+# darwin zip (a "Visual Studio Code.app/" bundle), the win32-x64 "-archive"
+# variant unzips flat, with Code.exe directly at the archive root.
+alias(
+    name = "code",
+    actual = "Code.exe",
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "tree",
+    srcs = glob(
+        ["**"],
+        exclude_directories = 0,
+    ),
+    visibility = ["//visibility:public"],
+)

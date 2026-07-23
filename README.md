@@ -7,31 +7,33 @@ for TRLC files. Get more information about
 
 ## Requirements
 
-- **VSCode**: >= 1.75.0 (recommended: >= 1.85.0 for best compatibility)
-- **Python**: 3.8 <= Python <= 3.12
-- **Node.js**: >= 20.0.0 (for building from source)
+- **VSCode**: >= 1.91.0
+- **Python**: 3.10 <= Python <= 3.13 — **your own install**, not bundled by
+  VSCode. This extension is a thin client around a separate Python process;
+  it needs a real interpreter on disk to launch.
 
 ## Installation
 
-1. Install [Python](https://www.python.org/downloads/): 3.8 <= Python <= 3.12.
+1. Install [Python](https://www.python.org/downloads/): 3.10 <= Python <= 3.13.
 2. Download the `*.vsix` file under the `Assets` tab of the [latest Release](https://github.com/bmw-software-engineering/trlc-vscode-extension/releases/latest) of the extension.
 3. Press `F1` in VSCode, type `Extensions: Install from VSIX...` and install the extension.
 4. If it is not working out of the box, go to VSCode Settings, search for `python.defaultInterpreterPath` and make sure it leads to your installed python executable.
 
-**Note for developers**: This project requires Node.js >= 20.0.0 for building. Use `nvm install 20 && nvm use 20` or see `.nvmrc` for the required version.
+**Building from source?** See the [Developer Guide](docs/DEVELOPER_GUIDE.md)
+— the build is fully hermetic via Bazel, no local Node.js/Python toolchain
+install required.
 
 On first use, the extension automatically installs all required Python
 dependencies (`pygls`, `trlc`, and `lsprotocol`) into an
-isolated `python-deps/` folder inside the extension directory — no
-manual `pip install` is needed.
+isolated `python-deps/` folder inside the extension directory
 
 **Reinstalling the extension?** Press `F1` and run: `TRLC: Reset Setup`
 once so that dependencies are re-installed cleanly.
 
 ## Use with other editors
 
-The `trlc_lsp` server is a standalone Python package that works with any
-LSP-capable editor.
+The `server` (distribution package: `trlc-lsp`) is a standalone Python language
+server that works with any LSP-capable editor.
 
 ### CLion and other JetBrains IDEs
 
@@ -43,38 +45,27 @@ A ready-made [lsp4ij](https://github.com/redhat-developer/lsp4ij) template is bu
 3. Click **[+] → New Language Server → Import from custom template...** and
    select the `lsp4ij-template/` folder (or the downloaded `lsp4ij-template.zip`).
 4. Confirm — on first file open lsp4ij automatically downloads and installs
-   the `trlc_lsp` wheel from GitHub Releases, with a local `trlc_lsp*.whl`
+   the `trlc-lsp` wheel from GitHub Releases, with a local `trlc_lsp*.whl`
    in your home directory as a fallback.
 
 ### Neovim, Emacs, Helix, and other LSP clients
 
 Install the server as a pip package and point your editor's LSP client at it.
-See [trlc_lsp/README.md](trlc_lsp/README.md) for details.
+See [docs/LSP_SERVER_GUIDE.md](docs/LSP_SERVER_GUIDE.md) for details.
 
-## How to switch from partial (default) to full parsing.
+## Documentation
 
-This extension offers `partial` and `full` parsing of **TRLC** files.
-In `partial` mode, only a subset of files within the current workspace or
-folder is parsed — specifically, the ones you have opened in your editor. On
-the other hand, in `full` mode, the entire workspace or folder is parsed,
-resulting in a longer processing time.
-
-1. Open the Settings either through the gear icon or through the menu:
-   - On Windows/Linux, go to `File > Preferences > Settings`.
-   - On macOS, go to `Code > Preferences > Settings`.
-
-2. Search for `trlc` using the search bar at the top.
-
-3. Modify the setting `Trlc Server: Parsing` and enter either **full** or
-**partial**
-
-1. Close the Settings, there is no need for saving.
-
-2. Press any key on the keyboard in any TRLC file and the updated settings will
-take effect.
-
-**Note:** The last step is necessary as Visual Studio Code applies the setting only
-when a change is made in a file.
+- [User Guide](docs/USER_GUIDE.md) — configuring parse mode, all settings,
+  commands, troubleshooting.
+- [LSP Server User Guide](docs/LSP_SERVER_GUIDE.md) — using `trlc-lsp` from
+  editors other than VSCode.
+- [Developer Guide](docs/DEVELOPER_GUIDE.md) — building, testing, and
+  extending the extension.
+- [Extension Architecture](docs/ARCHITECTURE.md) — internal design.
+- [Corporate Integration](docs/CORPORATE_INTEGRATION.md) — building
+  internal tooling on top of the extension.
+- [Release and Deployment](docs/RELEASE_AND_DEPLOYMENT.md) — cutting a
+  release.
 
 ## Copyright and License
 
@@ -83,6 +74,6 @@ the main copyright holder is the Bayerische Motoren Werke
 Aktiengesellschaft (BMW AG).
 
 Parts of the extension are derived from the samples provided by
-[pygls](https://pypi.org/project/pygls) (licensed under the Apache 2.0
-license) and the Microsoft Corporation (also licensed under the Apache
-2.0 license).
+[pygls](https://pypi.org/project/pygls) and Microsoft's
+[vscode-extension-samples](https://github.com/microsoft/vscode-extension-samples)
+(both licensed under the Apache 2.0 license).

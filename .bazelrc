@@ -1,0 +1,8 @@
+# Bzlmod
+common --registry=https://raw.githubusercontent.com/eclipse-score/bazel_registry/refs/heads/main/
+common --registry=https://bcr.bazel.build
+
+build:lint --aspects=//tools/lint:linters.bzl%ruff
+build:lint --aspects=//tools/lint:linters.bzl%pylint
+build:lint --aspects=//tools/lint:linters.bzl%eslint
+build:lint --@aspect_rules_lint//lint:fail_on_violation

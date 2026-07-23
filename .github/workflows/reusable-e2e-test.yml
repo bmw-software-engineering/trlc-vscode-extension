@@ -1,0 +1,69 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+name: Reusable - VSCode e2e Smoke Test
+
+on:
+  workflow_call:
+
+jobs:
+  e2e-test:
+    name: VSCode e2e Smoke Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      ASPECT_DISABLE_TELEMETRY: 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          disk-cache: true
+          repository-cache: true
+      # tests/e2e/prepare.ts writes python.defaultInterpreterPath from
+      # E2E_PYTHON_EXECUTABLE, falling back to a hardcoded "/usr/bin/python3"
+      # when unset. That happens to be Python 3.12 on ubuntu-latest (masking
+      # the issue there), but macOS's system stub is far older and ABI-
+      # incompatible with python-deps/'s cp312-built packages (trlc/pyvcg/
+      # cvc5) - crashing the server before it can answer `initialize` and
+      # surfacing as "Pending response rejected since connection got
+      # disposed" during extension activation. Pin the same version
+      # MODULE.bazel's default toolchain uses so every OS gets a matching
+      # interpreter instead of relying on the system one.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - shell: bash
+        run: |
+          echo "E2E_PYTHON_EXECUTABLE=$(python3 -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+      # VSCode's e2e Electron host needs a display; only Linux runners lack
+      # a real one, so xvfb is only wrapped in on ubuntu - windows/macos
+      # runners already provide a (virtual) display and don't have Xvfb.
+      - if: matrix.os == 'ubuntu-latest'
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: >-
+            bazel test //tests/e2e:vscode_smoke_e2e
+            --test_output=errors --test_verbose_timeout_warnings
+      - if: matrix.os != 'ubuntu-latest'
+        run: >-
+          bazel test //tests/e2e:vscode_smoke_e2e
+          --test_output=errors --test_verbose_timeout_warnings

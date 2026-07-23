@@ -1,0 +1,111 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library")
+load(":tests.bzl", "pytest_targets")
+
+package(default_visibility = ["//:__subpackages__"])
+
+# tests/fixtures/ has no BUILD.bazel of its own, so it's part of this
+# package - exposed as a filegroup so //tests/e2e can reuse the same
+# fixture files the integration pytest-lsp suite already uses (see
+# tests/integration/conftest.py's `workspace` fixture).
+filegroup(
+    name = "fixtures",
+    srcs = glob(["fixtures/**"]),
+)
+
+# js_test (//tests/e2e:vscode_smoke_e2e) requires cross-package data files
+# to go through a js_library so they get copied to the output tree - a
+# plain filegroup from another package isn't consumable directly.
+js_library(
+    name = "fixtures_js",
+    srcs = [":fixtures"],
+)
+
+py_library(
+    name = "tests",
+    testonly = True,
+    srcs = glob(
+        [
+            "*.py",
+            "unit/*.py",
+            "unit/handlers/*.py",
+            "integration/*.py",
+        ],
+        # Its own py_binary (:fake_bazel below) - not a pytest module.
+        exclude = ["integration/fake_bazel_main.py"],
+    ),
+    deps = [
+        "//src/server",
+        "@pip//pytest",
+        "@pip//pytest_lsp",
+        "@rules_python//python/runfiles",
+    ],
+)
+
+# Fake `bazel` executable for tests/integration/test_bazel_mode.py - a real
+# py_binary (not a loose script written by the test itself) so Windows gets
+# rules_python's native launcher exe; see fake_bazel_main.py's docstring for
+# why that's required there. Declared in this package, not a nested
+# tests/integration/BUILD.bazel, because splitting integration/ into its own
+# package would wall it off from the glob()s above and in tests.bzl.
+py_binary(
+    name = "fake_bazel",
+    testonly = True,
+    srcs = ["integration/fake_bazel_main.py"],
+    main = "integration/fake_bazel_main.py",
+)
+
+# One py_test per test file (not one per suite) - see tests.bzl. Each
+# target's name is derived straight from its path (e.g.
+# "unit/test_parse_engine.py" -> "unit_test_parse_engine"), so this doesn't
+# need hand-maintaining as tests are added/removed.
+_UNIT_TESTS = pytest_targets(
+    glob(
+        [
+            "unit/*.py",
+            "unit/handlers/*.py",
+        ],
+        exclude = [
+            "**/conftest.py",
+            "**/__init__.py",
+        ],
+    ),
+    size = "small",
+)
+
+# integration/ tests spawn a real `python -m server --stdio` subprocess and
+# drive it through pytest-lsp - slower than a unit test, hence size="medium".
+_INTEGRATION_TESTS = pytest_targets(
+    glob(["integration/test_*.py"]),
+    size = "medium",
+    # Only test_bazel_mode.py actually uses this (see its _bazel_config) -
+    # harmless extra runfile for the rest, and pytest_targets() only lets a
+    # whole group opt in, not one file within it.
+    extra_data = [":fake_bazel"],
+    extra_deps = ["@pip//pytest_lsp"],
+)
+
+test_suite(
+    name = "all_tests",
+    tests = _UNIT_TESTS + _INTEGRATION_TESTS,
+)

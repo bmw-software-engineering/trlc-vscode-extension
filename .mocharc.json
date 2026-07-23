@@ -1,0 +1,7 @@
+{
+    "require": "./mocha.bootstrap.js",
+    "spec": "src/client/src/__tests__/**/*.test.ts",
+    "extension": ["ts"],
+    "timeout": 5000,
+    "node-option": ["no-experimental-strip-types"]
+}

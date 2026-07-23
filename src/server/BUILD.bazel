@@ -1,0 +1,81 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+
+load("@bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
+load("@rules_python//python:defs.bzl", "py_library")
+load("@rules_python//python:packaging.bzl", "py_wheel")
+
+package(default_visibility = ["//:__subpackages__"])
+
+py_library(
+    name = "server",
+    srcs = glob([
+        "*.py",
+        "handlers/*.py",
+    ]),
+    imports = [".."],
+    deps = [
+        "@pip//lsprotocol",
+        "@pip//pygls",
+        "@pip//trlc",
+    ],
+)
+
+# The server Python sources, shipped verbatim inside the .vsix so the client
+# can launch `python -m server` from the extension root (see the `vsix` target
+# in //:BUILD.bazel and package.json's "files" allowlist). Runtime deps
+# (lsprotocol/pygls/trlc) are pip-installed into python-deps/ on first
+# activation by the client's installer, not bundled here.
+#
+# copy_to_bin (not a plain filegroup) so vsce's copy_to_bin-based packaging
+# action can consume these cross-package - see //docs/assets:assets for the
+# same pattern.
+copy_to_bin(
+    name = "server_sources",
+    srcs = glob([
+        "*.py",
+        "handlers/*.py",
+    ]),
+    visibility = ["//visibility:public"],
+)
+
+# Metadata mirrors pyproject.toml's [project] table - py_wheel doesn't read
+# pyproject.toml, so the two must be kept in sync by hand.
+py_wheel(
+    name = "wheel",
+    distribution = "trlc-lsp",
+    entry_points = {
+        "console_scripts": ["trlc-lsp = server.__main__:main"],
+    },
+    homepage = "https://github.com/bmw-software-engineering/trlc-vscode-extension",
+    license = "GPL-3.0-or-later",
+    python_tag = "py3",
+    requires = [
+        "lsprotocol>=2025.0.0",
+        "pygls==2.1.1",
+        "trlc>=3.0.0",
+    ],
+    # Package layout is src/server/*.py on disk, but the importable package
+    # is "server" (see pyproject.toml's [tool.setuptools.packages.find]) -
+    # strip the "src/" prefix so the wheel matches that, not "src/server/*".
+    strip_path_prefixes = ["src/"],
+    version = "4.0.0",
+    deps = [":server"],
+)

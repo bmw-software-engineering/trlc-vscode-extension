@@ -1,0 +1,18 @@
+{
+    "$comment": "Golden-path scenario coordinates shared between the VSCode e2e smoke suite (tests/e2e/suite/smoke.e2e.ts) and the pytest-lsp integration suite (tests/integration/test_completion.py, test_diagnostics.py). Keep both in sync when editing.",
+    "completionDotTrigger": {
+        "sourceIntegrationTest": "tests/integration/test_completion.py::TestCompletion::test_dot_on_enumeration_type_completes_literals",
+        "typesFile": "types.rsl",
+        "sampleFile": "sample.trlc",
+        "sampleText": "package Types\n\nMyRecord wip {\n    x = 1\n    y = 2\n    c = Color.\n}\n",
+        "position": { "line": 5, "character": 15 },
+        "triggerCharacter": ".",
+        "expectedLabels": ["Red", "Green", "Blue"]
+    },
+    "diagnosticsOnInvalidFile": {
+        "sourceIntegrationTest": "tests/integration/test_diagnostics.py::TestDiagnostics::test_invalid_file_produces_error_diagnostic",
+        "typesFile": "types.rsl",
+        "invalidFile": "invalid_scope/invalid.trlc",
+        "expectAtLeastOneErrorDiagnostic": true
+    }
+}

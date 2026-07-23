@@ -1,0 +1,6 @@
+lsprotocol>=2025.0.0
+pygls==2.1.1
+trlc>=3.0.0
+pylint==4.0.6
+pytest>=9.0
+pytest-lsp>=1.0.1

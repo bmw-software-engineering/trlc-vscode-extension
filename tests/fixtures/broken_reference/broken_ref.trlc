@@ -1,0 +1,35 @@
+/********************************************************************************
+ * TRLC VSCode Extension
+ * Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+ *
+ * This file is part of the TRLC VSCode Extension.
+ *
+ * The TRLC VSCode Extension is free software: you can redistribute it
+ * and/or modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation, either version 3 of
+ * the License, or (at your option) any later version.
+ *
+ * The TRLC VSCode Extension is distributed in the hope that it will be
+ * useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+ * of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+ ********************************************************************************/
+package BrokenRef
+
+// CompB is declared *before* FeatA — the forward reference to FeatA and the
+// unresolvable DoesNotExist reproduce the exact scenario that exposed the
+// hover / goto-definition / find-references bugs: TRLC's deferred
+// resolve_record_references pass has no per-element try/except, so one
+// unresolvable name earlier in a derived_from list permanently prevents a
+// later, perfectly valid forward reference in the same list from ever
+// getting its .target set — even though the referenced object parses cleanly.
+CompReq CompB {
+    derived_from = [DoesNotExist, FeatA]
+}
+
+Req FeatA {
+    description = "A real feature"
+}

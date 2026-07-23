@@ -10,7 +10,7 @@
 
 # Node.js and TS
 node_modules
-client/out
+src/client/out
 
 # Python
 __pycache__/
@@ -21,3 +21,11 @@ dist/
 *.egg-info/
 build/
 *.whl
+.venv
+
+# AI
+.claude
+.rtk
+CLAUDE.md
+
+bazel-*

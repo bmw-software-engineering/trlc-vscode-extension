@@ -1,0 +1,207 @@
+load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
+load("@aspect_rules_js//js:defs.bzl", "js_library")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_config", "ts_project")
+load("@npm//:@vscode/vsce/package_json.bzl", vsce_bin = "bin")
+load("@npm//:defs.bzl", "npm_link_all_packages")
+load("@npm//:mocha/package_json.bzl", mocha_bin = "bin")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+load("@score_tooling//:defs.bzl", "copyright_checker")
+
+npm_link_all_packages(name = "node_modules")
+
+# requirements_dev.in: lsp runtime deps + pytest + pytest-lsp + pylint -
+# the full dev/test/lint set, compiled per-version (requirements_dev_3_10.txt
+# etc). Root requirements.txt is separate - hand-written, just what the
+# extension installs at runtime, see installerCore.ts's REQUIRED_PACKAGES.
+#
+# `bazel run //:requirements_dev_3_12.update` (or any other version's
+# `.update`) regenerates its lock from requirements_dev.in's unpinned
+# top-level constraints, using Bazel's own pinned Python toolchain +
+# pip-tools - not an ad-hoc local `pip-compile`/`uv pip compile` run,
+# which could resolve against a different Python/platform than Bazel
+# actually uses. For a non-default version, pass the matching flag, e.g.:
+#   bazel run //:requirements_dev_3_10.update --@rules_python//python/config_settings:python_version=3.10
+# `bazel test //:requirements_dev_3_12.test` (etc, all part of //:test)
+# fails if a checked-in lock ever drifts from what requirements_dev.in
+# currently compiles to.
+[
+    compile_pip_requirements(
+        name = "requirements_dev_{}".format(version.replace(".", "_")),
+        src = "requirements_dev.in",
+        python_version = version,
+        requirements_txt = "requirements_dev_{}.txt".format(version.replace(".", "_")),
+    )
+    for version in [
+        "3.10",
+        "3.11",
+        "3.12",
+        "3.13",
+    ]
+]
+
+js_library(
+    name = "eslintrc",
+    srcs = ["eslint.config.mjs"],
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":node_modules/@eslint/js",
+        ":node_modules/typescript-eslint",
+    ],
+)
+
+ts_config(
+    name = "tsconfig",
+    src = "tsconfig.json",
+    visibility = ["//:__subpackages__"],
+)
+
+ts_project(
+    name = "extension_ts",
+    srcs = glob(["src/client/src/*.ts"]),
+    out_dir = "src/client/.tsc-out",
+    root_dir = "src/client/src",
+    source_map = True,
+    transpiler = "tsc",
+    tsconfig = ":tsconfig",
+    deps = [
+        ":node_modules/@types/node",
+        ":node_modules/@types/vscode",
+        ":node_modules/vscode-languageclient",
+    ],
+)
+
+esbuild(
+    name = "extension_bundle",
+    srcs = glob(["src/client/src/*.ts"]),
+    entry_point = "src/client/src/extension.ts",
+    external = ["vscode"],
+    format = "cjs",
+    minify = True,
+    output = "src/client/out/extension.js",
+    platform = "node",
+    # Uncomment for TS-level breakpoints when debugging the installed
+    # .vsix's Extension Host from the command line (see DEVELOPER_GUIDE.md's
+    # "Debugging the installed extension from the command line") - adds a
+    # .js.map to the shipped artifact, so keep it off otherwise.
+    # sourcemap = "linked",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        ":node_modules/@types/node",
+        ":node_modules/@types/vscode",
+        ":node_modules/vscode-languageclient",
+    ],
+)
+
+filegroup(
+    name = "pyproject_toml",
+    srcs = ["pyproject.toml"],
+    visibility = ["//:__subpackages__"],
+)
+
+filegroup(
+    name = "vsix_static_files",
+    srcs = [
+        "CHANGELOG.md",
+        "LICENSE",
+        "README.md",
+        "package.json",
+        "trlc-grammar.json",
+        "trlc-language-configuration.json",
+    ],
+    visibility = ["//:__subpackages__"],
+)
+
+alias(
+    name = "format",
+    actual = "//tools/format",
+)
+
+alias(
+    name = "wheel",
+    actual = "//src/server:wheel",
+)
+
+alias(
+    name = "typecheck",
+    actual = ":extension_ts",
+)
+
+test_suite(
+    name = "test",
+    tests = [
+        ":client_test",
+        ":requirements_dev_3_10.test",
+        ":requirements_dev_3_11.test",
+        ":requirements_dev_3_12.test",
+        ":requirements_dev_3_13.test",
+        "//tests:all_tests",
+    ],
+)
+
+mocha_bin.mocha_test(
+    name = "client_test",
+    args = [
+        "--config",
+        "$(rootpath .mocharc.json)",
+    ],
+    data = [
+        ".mocharc.json",
+        "mocha.bootstrap.js",
+        "tsconfig.json",
+        "tsconfig.test.json",
+        ":node_modules/@types/mocha",
+        ":node_modules/@types/node",
+        ":node_modules/@types/sinon",
+        ":node_modules/@types/vscode",
+        ":node_modules/sinon",
+        ":node_modules/ts-node",
+        ":node_modules/typescript",
+        ":node_modules/vscode-languageclient",
+    ] + glob(["src/client/src/**/*.ts"]),
+)
+
+vsce_bin.vsce(
+    name = "vsix",
+    srcs = [
+        ":extension_bundle",
+        ":vsix_static_files",
+        "//docs/assets",
+        "//src/server:server_sources",
+    ],
+    outs = ["trlc-vscode-extension.vsix"],
+    args = [
+        "package",
+        "--no-dependencies",
+        # Skips vsce's secretlint-based secret scan. Its packaged file set
+        # here is an explicit allowlist (package.json's "files": the static
+        # metadata files, the bundled extension.js, and the server's own
+        # src/server/**/*.py sources) - not a broad directory sweep - so
+        # there's nothing for it to catch that GitHub's push-protection
+        # scanning of the source tree wouldn't already flag first. Also
+        # works around secretlint's
+        # dynamic ESM import failing to resolve inside Bazel's sandboxed
+        # runfiles layout (see docs/RELEASE_AND_DEPLOYMENT.md).
+        "--allow-package-all-secrets",
+        "--allow-package-env-file",
+        "-o",
+        "trlc-vscode-extension.vsix",
+    ],
+    include_npm = True,
+)
+
+copyright_checker(
+    name = "copyright",
+    srcs = [
+        ".github",
+        "docs",
+        "lsp4ij-template",
+        "src",
+        "tests",
+        "tools",
+        # "//:BUILD",
+        # "//:MODULE.bazel",
+    ],
+    config = "//tools/cr_checker:config",
+    template = "//tools/cr_checker:templates",
+    visibility = ["//visibility:public"],
+)
