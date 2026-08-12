@@ -4,7 +4,7 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 ---
 
-## [Unreleased]
+## [4.0.0] - 2026-08-12
 
 ### New Features
 
