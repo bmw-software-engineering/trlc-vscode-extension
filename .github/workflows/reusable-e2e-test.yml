@@ -33,8 +33,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: bazel-contrib/setup-bazel@0.19.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
           disk-cache: true
           repository-cache: true
@@ -48,7 +48,7 @@ jobs:
       # disposed" during extension activation. Pin the same version
       # MODULE.bazel's default toolchain uses so every OS gets a matching
       # interpreter instead of relying on the system one.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - shell: bash
@@ -58,7 +58,7 @@ jobs:
       # a real one, so xvfb is only wrapped in on ubuntu - windows/macos
       # runners already provide a (virtual) display and don't have Xvfb.
       - if: matrix.os == 'ubuntu-latest'
-        uses: coactions/setup-xvfb@v1
+        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1.0.1
         with:
           run: >-
             bazel test //tests/e2e:vscode_smoke_e2e

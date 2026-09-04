@@ -29,8 +29,8 @@ jobs:
     env:
       ASPECT_DISABLE_TELEMETRY: 1
     steps:
-      - uses: actions/checkout@v7
-      - uses: bazel-contrib/setup-bazel@0.19.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
         with:
           disk-cache: true
           repository-cache: true
@@ -43,17 +43,17 @@ jobs:
         run: |
           zip -r lsp4ij-template.zip lsp4ij-template/
       - name: "Archive vsix"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package
           path: "*.vsix"
       - name: "Archive wheel"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lsp-wheel
           path: "trlc_lsp*.whl"
       - name: "Archive lsp4ij-template"
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lsp4ij-template
           path: "lsp4ij-template.zip"
