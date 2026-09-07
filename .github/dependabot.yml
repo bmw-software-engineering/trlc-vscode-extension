@@ -17,27 +17,24 @@
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 # *******************************************************************************
-name: Reusable - Python Tests
+version: 2
+updates:
+  # Check for GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions:
+        patterns:
+          - "*"
 
-on:
-  workflow_call:
-
-jobs:
-  python-test:
-    name: Python Test (${{ matrix.os }}, py${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    env:
-      ASPECT_DISABLE_TELEMETRY: 1
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
-        with:
-          disk-cache: true
-          repository-cache: true
-      - name: Test
-        run: bazel test --@rules_python//python/config_settings:python_version=${{ matrix.python-version }} //tests:all_tests --test_output=errors
+  # Check for Python (pip) updates
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      pip-dependencies:
+        patterns:
+          - "*"
