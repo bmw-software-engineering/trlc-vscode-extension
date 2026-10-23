@@ -22,7 +22,9 @@
 src/server/BUILD.bazel, or check that they already agree.
 
 --check additionally verifies that py_wheel's hand-maintained `requires`
-list in src/server/BUILD.bazel matches pyproject.toml's dependencies.
+list in src/server/BUILD.bazel matches pyproject.toml's dependencies, and
+that every copy of the supported TRLC range (pyproject.toml, BUILD.bazel,
+installerCore.ts, requirements_dev.in) matches src/server/trlc_compat.py.
 """
 
 import os
@@ -40,6 +42,9 @@ VERSION_FILE = _ROOT / "VERSION"
 PACKAGE_JSON = _ROOT / "package.json"
 PYPROJECT = _ROOT / "pyproject.toml"
 SERVER_BUILD = _ROOT / "src/server/BUILD.bazel"
+TRLC_COMPAT = _ROOT / "src/server/trlc_compat.py"
+INSTALLER_CORE = _ROOT / "src/client/src/installerCore.ts"
+REQUIREMENTS_DEV_IN = _ROOT / "requirements_dev.in"
 
 PACKAGE_JSON_RE = re.compile(r'"version":\s*"([^"]*)"')
 PYPROJECT_RE = re.compile(r'version\s*=\s*"([^"]*)"')
@@ -53,6 +58,17 @@ PYPROJECT_DEPS_RE = re.compile(
     r"^dependencies\s*=\s*\[(.*?)\]", re.DOTALL | re.MULTILINE
 )
 SERVER_BUILD_REQUIRES_RE = re.compile(r"requires\s*=\s*\[(.*?)\]", re.DOTALL)
+REQUIRED_PACKAGES_RE = re.compile(
+    r"REQUIRED_PACKAGES[^=]*=\s*\[(.*?)\]", re.DOTALL
+)
+TRLC_MIN_RE = re.compile(
+    r"^TRLC_MIN_VERSION\s*=\s*\((\d+),\s*(\d+),\s*(\d+)\)", re.MULTILINE
+)
+TRLC_MAX_RE = re.compile(
+    r"^TRLC_MAX_MAJOR_EXCLUSIVE\s*=\s*(\d+)", re.MULTILINE
+)
+# The `trlc` distribution itself, not `trlc-lsp` etc.
+TRLC_NAME_RE = re.compile(r"trlc(?![\w.-])")
 _QUOTED_RE = re.compile(r'"([^"]*)"')
 
 
@@ -85,6 +101,43 @@ def _write_version(path, pattern, version):
     print(f"  Updated {path}")
 
 
+def _trlc_requirement():
+    """pip requirement string for the range declared in trlc_compat.py."""
+    text = _read(TRLC_COMPAT)
+    min_match = TRLC_MIN_RE.search(text)
+    max_match = TRLC_MAX_RE.search(text)
+    if not min_match or not max_match:
+        raise SystemExit(f"Could not find the TRLC range in {TRLC_COMPAT}")
+    return f"trlc>={'.'.join(min_match.groups())},<{max_match.group(1)}"
+
+
+def _requirement_lines(path):
+    """Requirement entries of a pip requirements file, comments removed."""
+    lines = (
+        line.split("#", 1)[0].strip() for line in _read(path).splitlines()
+    )
+    return [line for line in lines if line]
+
+
+def _trlc_mismatches():
+    """Locations whose TRLC requirement differs from trlc_compat.py."""
+    expected = _trlc_requirement()
+    found = {
+        PYPROJECT: _dep_list(PYPROJECT, PYPROJECT_DEPS_RE),
+        SERVER_BUILD: _dep_list(SERVER_BUILD, SERVER_BUILD_REQUIRES_RE),
+        INSTALLER_CORE: _dep_list(INSTALLER_CORE, REQUIRED_PACKAGES_RE),
+        REQUIREMENTS_DEV_IN: _requirement_lines(REQUIREMENTS_DEV_IN),
+    }
+    mismatches = []
+    for path, entries in found.items():
+        trlc = [e for e in entries if TRLC_NAME_RE.match(e)]
+        if trlc != [expected]:
+            mismatches.append(
+                f"  {path}: {trlc} != {[expected]} ({TRLC_COMPAT.name})"
+            )
+    return mismatches
+
+
 def sync(version):
     """Write *version* into package.json, pyproject.toml, and BUILD.bazel."""
     print(f"Syncing version: {version}")
@@ -113,6 +166,7 @@ def check(version):
             f"    pyproject.toml: {pyproject_deps}\n"
             f"    BUILD.bazel:    {wheel_deps}"
         )
+    mismatches.extend(_trlc_mismatches())
     if mismatches:
         print("Version mismatch:")
         print("\n".join(mismatches))

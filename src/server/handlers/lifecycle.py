@@ -26,6 +26,7 @@ import os
 from typing import Callable, Optional, Set
 
 from lsprotocol.types import (
+    INITIALIZED,
     SHUTDOWN,
     TEXT_DOCUMENT_DID_CHANGE,
     TEXT_DOCUMENT_DID_CLOSE,
@@ -41,11 +42,13 @@ from lsprotocol.types import (
     DidChangeWorkspaceFoldersParams,
     DidCloseTextDocumentParams,
     DidOpenTextDocumentParams,
+    InitializedParams,
     LogMessageParams,
     MessageType,
     ShowMessageParams,
 )
 
+from .. import trlc_compat
 from ..logging_config import level_from_name, set_log_level
 from ..message_handler import Vscode_Message_Handler
 from ..parse_context import ParseContext, ParseResult
@@ -302,6 +305,27 @@ def _apply_config_and_warn(
     _log_config_applied(ls, config, folder_uri)
 
 
+def on_initialized(ls, _: InitializedParams):
+    """Log the running TRLC version; warn if it is outside the supported
+    range (see :mod:`~server.trlc_compat`)."""
+    version = trlc_compat.installed_version()
+    label = trlc_compat.installed_label()
+    ls.window_log_message(
+        LogMessageParams(
+            type=MessageType.Log,
+            message=(
+                f"TRLC: Using trlc {label} "
+                f"(supported: {trlc_compat.TRLC_REQUIREMENT})"
+            ),
+        )
+    )
+    warning = trlc_compat.unsupported_message(version, label)
+    if warning:
+        ls.window_show_message(
+            ShowMessageParams(type=MessageType.Warning, message=warning)
+        )
+
+
 def on_shutdown(ls, *_args):
     """Shutdown request: stop the parse worker thread cleanly before
     the process exits, instead of leaving it to be killed mid-cycle."""
@@ -504,6 +528,7 @@ def register(server: "ServerProtocol") -> None:
     are plain module-level functions (not nested closures) so each can be
     imported and unit-tested directly.
     """
+    server.feature(INITIALIZED)(on_initialized)
     server.feature(SHUTDOWN)(on_shutdown)
     server.feature(WORKSPACE_DID_CHANGE_WORKSPACE_FOLDERS)(
         on_workspace_folders_change

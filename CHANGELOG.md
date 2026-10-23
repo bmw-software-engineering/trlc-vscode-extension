@@ -4,6 +4,24 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 ---
 
+## [Unreleased]
+
+### Changes
+
+- **Requires TRLC 3.1.1 or newer, below 4** — the supported `trlc` range is
+  `>=3.1.1,<4` (was `>=3.0.0`), applied to extension-installed dependencies, the
+  `trlc-lsp` package and dev lockfiles. The lockfiles also pick up the matching
+  `pyvcg` 1.0.12 and `cvc5` 1.3.4.
+- **TRLC version check at startup** — the server logs the TRLC version it runs with
+  and shows a warning if it is outside the supported range. If the warning appears,
+  run "TRLC: Reset Setup" and reload the window to reinstall a supported version.
+  The warning is also written to the server's stderr before TRLC is loaded, so it
+  is visible in the Output panel even if an incompatible TRLC prevents startup.
+- **Removed redundant `activationEvents`** — VS Code generates the `onLanguage:TRLC`
+  activation event automatically from the `contributes.languages` declaration.
+
+---
+
 ## [4.0.0] - 2026-08-12
 
 ### New Features

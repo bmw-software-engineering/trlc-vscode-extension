@@ -70,9 +70,6 @@
         "test:e2e": "ts-node tests/e2e/runTest.ts"
     },
     "main": "src/client/out/extension",
-    "activationEvents": [
-        "onLanguage:TRLC"
-    ],
     "contributes": {
         "languages": [
             {

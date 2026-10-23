@@ -35,7 +35,7 @@ import * as fs from "fs";
 export const REQUIRED_PACKAGES: readonly string[] = [
     "lsprotocol>=2025.0.0",
     "pygls==2.1.1",
-    "trlc>=3.0.0",
+    "trlc>=3.1.1,<4",
 ];
 
 /**

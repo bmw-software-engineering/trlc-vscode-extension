@@ -23,8 +23,12 @@
 # Test classes are thin scenario groupings; each test method documents
 # its own scenario via a Given/When/Then docstring or inline comment.
 
+from server import trlc_compat
 
-# pylint: disable-next=too-few-public-methods  # single smoke test; separate class for clarity
+from .lsp_helpers import wait_for_log_message
+
+
+# pylint: disable-next=too-few-public-methods  # smoke tests; separate class for clarity
 class TestServerLifecycle:
     async def test_server_starts_and_initializes(self, client):
         """initialize/initialized handshake completes without error."""
@@ -34,3 +38,12 @@ class TestServerLifecycle:
         assert client is not None
         assert client.initialize_result is not None
         assert client.initialize_result.capabilities is not None
+
+    async def test_initialized_logs_trlc_version(self, client):
+        """The `initialized` notification makes the server log its TRLC."""
+        # Given: a server subprocess started via the `client` fixture
+        # When: the initialize/initialized handshake has completed
+        # Then: the server logs the TRLC version and the supported range
+        log = await wait_for_log_message(client, "TRLC: Using trlc ")
+        assert trlc_compat.TRLC_REQUIREMENT in log.message
+        assert not client.messages

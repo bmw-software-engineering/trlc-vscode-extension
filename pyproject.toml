@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "lsprotocol>=2025.0.0",
     "pygls==2.1.1",
-    "trlc>=3.0.0",
+    "trlc>=3.1.1,<4",
 ]
 
 [project.scripts]

@@ -41,6 +41,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from lsprotocol.types import (
+    INITIALIZED,
     SHUTDOWN,
     TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_DID_OPEN,
@@ -52,6 +53,8 @@ from lsprotocol.types import (
     DidOpenTextDocumentParams,
     FileChangeType,
     FileEvent,
+    InitializedParams,
+    MessageType,
     TextDocumentIdentifier,
     TextDocumentItem,
 )
@@ -191,6 +194,7 @@ def handlers(server):
         "did_open": server.get_handler(TEXT_DOCUMENT_DID_OPEN),
         "did_close": server.get_handler(TEXT_DOCUMENT_DID_CLOSE),
         "shutdown": server.get_handler(SHUTDOWN),
+        "initialized": server.get_handler(INITIALIZED),
         "watched_files": server.get_handler(
             WORKSPACE_DID_CHANGE_WATCHED_FILES
         ),
@@ -594,6 +598,51 @@ class TestShutdown:
         handlers["shutdown"](server)
         # Then: the server's parse engine is stopped
         assert ("stop_engine", None, None) in server._events
+
+
+class TestInitialized:
+    def test_supported_version_is_logged_without_warning(
+        self, server, handlers, monkeypatch
+    ):
+        """Given a supported TRLC version, When the client sends
+        `initialized`, Then the version is logged and no popup is shown."""
+        # Given: a supported TRLC version with a pre-release suffix
+        monkeypatch.setattr(
+            lifecycle_mod.trlc_compat, "installed_version", lambda: (3, 1, 1)
+        )
+        monkeypatch.setattr(
+            lifecycle_mod.trlc_compat, "installed_label", lambda: "3.1.1-dev"
+        )
+        # When: the client sends `initialized`
+        handlers["initialized"](server, InitializedParams())
+        # Then: the full label is logged, nothing is shown
+        assert len(server._logs) == 1
+        assert server._logs[0].type == MessageType.Log
+        assert "trlc 3.1.1-dev" in server._logs[0].message
+        assert not server._msgs
+
+    def test_unsupported_version_shows_warning(
+        self, server, handlers, monkeypatch
+    ):
+        """Given an unsupported TRLC version, When the client sends
+        `initialized`, Then the version is logged and a warning popup naming
+        the supported range is shown (the server keeps running)."""
+        # Given: an unsupported TRLC version
+        monkeypatch.setattr(
+            lifecycle_mod.trlc_compat, "installed_version", lambda: (3, 0, 0)
+        )
+        monkeypatch.setattr(
+            lifecycle_mod.trlc_compat, "installed_label", lambda: "3.0.0"
+        )
+        # When: the client sends `initialized`
+        handlers["initialized"](server, InitializedParams())
+        # Then: logged, and a warning is shown
+        assert "trlc 3.0.0" in server._logs[0].message
+        assert len(server._msgs) == 1
+        assert server._msgs[0].type == MessageType.Warning
+        assert lifecycle_mod.trlc_compat.TRLC_REQUIREMENT in (
+            server._msgs[0].message
+        )
 
 
 def _watched_change(uri, change_type=FileChangeType.Changed):

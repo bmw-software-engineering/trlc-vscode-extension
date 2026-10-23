@@ -115,6 +115,31 @@ async def wait_for_message(
     return client.messages[-1]
 
 
+async def wait_for_log_message(
+    client: LanguageClient, prefix: str, timeout: float = 10.0
+) -> types.LogMessageParams:
+    """Block until a window/logMessage starting with *prefix* arrives.
+
+    Same polling pattern as :func:`wait_for_message`, over
+    ``client.log_messages``.
+    """
+
+    def _find() -> Optional[types.LogMessageParams]:
+        return next(
+            (m for m in client.log_messages if m.message.startswith(prefix)),
+            None,
+        )
+
+    async def _poll():
+        while _find() is None:
+            await client.wait_for_notification("window/logMessage")
+
+    await asyncio.wait_for(_poll(), timeout=timeout)
+    found = _find()
+    assert found is not None
+    return found
+
+
 async def completion(
     client: LanguageClient,
     uri: str,

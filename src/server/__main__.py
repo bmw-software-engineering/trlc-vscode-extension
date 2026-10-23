@@ -46,6 +46,16 @@ if os.path.isdir(_python_deps):
 
 # Import after sys.path setup above, so bundled deps (including
 # lsprotocol, used by logging_config) resolve correctly.
+from . import trlc_compat  # noqa: E402
+
+# Before importing .server: an unsupported TRLC can break that import, and
+# stderr is the only channel left then.
+_TRLC_WARNING = trlc_compat.unsupported_message(
+    trlc_compat.installed_version(), trlc_compat.installed_label()
+)
+if _TRLC_WARNING:
+    print(_TRLC_WARNING, file=sys.stderr)
+
 from .logging_config import configure_logging, level_from_name  # noqa: E402
 from .server import trlc_server  # noqa: E402
 
