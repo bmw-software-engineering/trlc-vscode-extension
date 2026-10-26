@@ -799,6 +799,7 @@ the server, independent of the grammar.
 | `textDocument/didOpen` | `lifecycle.py` | Resolves scope_id (off the event loop via `asyncio.to_thread`); creates context; queues parse |
 | `textDocument/didChange` | `lifecycle.py` | Queues per-scope reparse |
 | `textDocument/didClose` | `lifecycle.py` | Removes file; destroys context if empty |
+| `initialized` | `lifecycle.py` | Logs the running TRLC version; warns if outside the `trlc_compat` range |
 | `workspace/didChangeConfiguration` | `lifecycle.py` | Reloads settings; triggers full reparse |
 | `workspace/didChangeWorkspaceFolders` | `lifecycle.py` | Invalidates all contexts; queues reparse |
 | `shutdown` | `lifecycle.py` | Stops the parse worker (joined, not killed) — see [Concurrency](#concurrency) |
@@ -888,9 +889,12 @@ Three sub-tracks, most independent first:
 **On the extension side**, once this lands upstream: replace the "fresh
 `Vscode_Source_Manager` per cycle" rule with one long-lived VSM per scope, fed
 edits and evictions instead of rebuilt from scratch. This needs a coordinated
-`trlc>=X` bump across `pyproject.toml`, `src/server/BUILD.bazel`'s `py_wheel`
-`requires`, and `requirements_dev.txt` (hand-synced today — see
-RELEASE_AND_DEPLOYMENT.md).
+`trlc>=X` bump across `src/server/trlc_compat.py` (the source of truth) and
+its copies in `pyproject.toml`, `src/server/BUILD.bazel`'s `py_wheel`
+`requires`, `src/client/src/installerCore.ts` and `requirements_dev.in`
+(`sync_version --check` verifies they agree — see RELEASE_AND_DEPLOYMENT.md).
+Also update the pinned list in `src/client/src/__tests__/installerCore.test.ts`
+and re-lock the dev lockfiles (`bazel run //:requirements_dev_3_1x.update`).
 
 ---
 

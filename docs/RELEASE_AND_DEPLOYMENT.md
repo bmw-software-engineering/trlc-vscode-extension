@@ -33,7 +33,11 @@ PyPI publish step has been run for a given release.
 
    `bazel run //tools/version_synch:sync_version -- --check` (also run in CI,
    see below) fails if any of the 3 have drifted out of sync with `VERSION`
-   without writing anything — use it to double check before committing.
+   without writing anything — use it to double check before committing. It
+   also fails if the supported TRLC range in
+   [`src/server/trlc_compat.py`](../src/server/trlc_compat.py) differs from
+   the `trlc` requirement in `pyproject.toml`, `src/server/BUILD.bazel`,
+   `src/client/src/installerCore.ts` or `requirements_dev.in`.
 
 3. **Update [`CHANGELOG.md`](../CHANGELOG.md)** with a new section for the
    release (version number, date, notable changes).
