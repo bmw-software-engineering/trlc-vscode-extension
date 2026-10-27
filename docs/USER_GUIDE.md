@@ -98,6 +98,54 @@ wording).
 | `Trlc Server > Trace: Server` | `off` | Traces communication between VS Code and the TRLC language server. Set to 'verbose' and check the '[pygls] TrlcLanguageServer' Output channel to diagnose why a file isn't parsing as expected. |
 | `Trlc Server: Log Level` | `warning` | Sets the verbosity of TRLC's diagnostic logging (client and server), shown in the '[pygls] TrlcLanguageServer' output channel and written to a rotating log file. This is separate from Trlc Server > Trace: Server, which only traces the LSP wire protocol. |
 
+## Preview
+
+**TRLC: Open Preview to the Side** (command palette, or the preview button
+in the editor title bar of a `.trlc` file) opens a live view of the active
+`.trlc` file next to the editor. It follows the active `.trlc` editor and
+updates as you type.
+
+### Reading
+
+- Sections are shown as headings with one `#` per nesting depth (h1 to h6;
+  deeper levels keep showing all `#`).
+- Click a record's name to jump to it in the editor.
+- Frozen fields are shown read-only.
+
+### Editing
+
+Edits are applied to the file like keyboard edits: they mark the file dirty
+and can be undone with `Ctrl+Z`.
+
+| Field kind | Editor | Commits when |
+|------------|--------|--------------|
+| String | Multi-line text area | `Ctrl+Enter`, or leaving the field |
+| Integer, decimal, reference, other | Text input | `Enter`, or leaving the field |
+| Boolean, enumeration | Drop-down | Selecting a value |
+
+- Choosing the blank option on a set optional field removes it; the **x**
+  button next to an optional field does the same.
+- Multi-line strings follow TRLC's triple-quote normalisation: leading and
+  trailing whitespace and common indentation are not preserved.
+
+### Adding records
+
+**+ Record** appears in every section and at file level. Pick a type and
+enter a name. Required components get placeholders: `0`, `0.0`, `false`,
+`""`, or the first enumeration literal. Required references are left out,
+so the new record shows a TRLC error until you fill them in.
+
+### Why the preview can turn read-only
+
+A banner replaces editing, the last good content stays visible and inputs
+are disabled, when:
+
+| Banner | Meaning |
+|--------|---------|
+| File is not part of an active TRLC scope. | The file is outside the current parse scope. |
+| File has errors that prevent parsing; fix them in the editor. | The file could not be parsed; fix the syntax errors. |
+| Waiting for the parser to catch up with your last edit. | A short pause after typing; editing resumes automatically. |
+
 ## Commands
 
 Available via `F1` / Command Palette:
@@ -107,6 +155,8 @@ Available via `F1` / Command Palette:
   scratch. Use this if the extension isn't starting after an update.
 - **TRLC: Show Output** — open the "[pygls] TrlcLanguageServer" output
   channel (server/client logs and, if enabled, LSP wire trace).
+- **TRLC: Open Preview to the Side** — open the live, editable preview of
+  the active `.trlc` file (see [Preview](#preview)).
 - **TRLC: Show Files In Scope** — list every file in the active file's
   current parse scope; pick one to open it. Also reachable by clicking
   the scope status bar item.

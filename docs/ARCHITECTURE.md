@@ -811,7 +811,18 @@ the server, independent of the grammar.
 | `textDocument/codeAction` | `code_actions.py` | Quick fixes for TRLC diagnostics |
 | `trlc/scopeStatus` | `status.py` | Custom request: scope up-to-date status for the status bar |
 | `trlc/scopeFiles` | `status.py` | Custom request: files in the active file's scope |
+| `trlc/previewModel` | `preview.py` | Custom request: section/record/field tree of a `.trlc` file for the preview |
+| `trlc/previewSetField` | `preview.py` | Custom request: returns a `WorkspaceEdit` that sets or removes one field |
+| `trlc/previewAddRecord` | `preview.py` | Custom request: returns a `WorkspaceEdit` that inserts a new record |
 | `extension.parseAll` command | `lifecycle.py` | Forces full reparse of all contexts |
+
+**Preview edits.** The preview webview never writes files. For an edit, the
+server (`preview_edits.py`) computes a `WorkspaceEdit` from the last parsed
+AST (`preview_scan.py` locates source ranges, `preview_values.py` renders
+values) and returns it; the client (`previewController.ts`) applies it with
+`workspace.applyEdit`, so it behaves like a keyboard edit (undo, dirty
+state). The server refuses edits while the last parse is stale or failed; the
+preview then shows a banner, keeps the last good tree and disables inputs.
 
 Key handler pattern:
 ```python

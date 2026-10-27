@@ -112,6 +112,7 @@ suite("TRLC extension e2e smoke", () => {
         for (const expected of [
             "extension.parseAll",
             "extension.resetState",
+            "extension.openTrlcPreview",
         ]) {
             assert.ok(
                 commands.includes(expected),
@@ -166,6 +167,27 @@ suite("TRLC extension e2e smoke", () => {
             `Expected an error-severity diagnostic, got: ${JSON.stringify(
                 diagnostics.map(d => d.severity)
             )}`
+        );
+    });
+
+    test("the preview command opens a preview tab for the active .trlc file", async () => {
+        const typesUri = vscode.Uri.joinPath(workspaceFolder.uri, scenarios.completionDotTrigger.typesFile);
+        const sampleUri = vscode.Uri.joinPath(workspaceFolder.uri, scenarios.completionDotTrigger.sampleFile);
+
+        await vscode.workspace.openTextDocument(typesUri);
+        const document = await vscode.workspace.openTextDocument(sampleUri);
+        await vscode.window.showTextDocument(document);
+        await waitForDiagnostics(sampleUri);
+
+        await vscode.commands.executeCommand("extension.openTrlcPreview");
+
+        const label = `Preview ${path.basename(sampleUri.fsPath)}`;
+        const labels = vscode.window.tabGroups.all.flatMap(group =>
+            group.tabs.map(tab => tab.label)
+        );
+        assert.ok(
+            labels.includes(label),
+            `Expected a tab labelled "${label}", got: ${JSON.stringify(labels)}`
         );
     });
 });
