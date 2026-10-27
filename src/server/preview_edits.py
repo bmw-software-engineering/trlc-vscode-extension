@@ -1,0 +1,254 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+"""Text edits for preview changes: set a field value, add a record.
+
+All positions come from the TRLC tokens of the parsed file, so the
+edits are only valid against the exact ``content`` that was parsed.
+"""
+
+# The public signatures are fixed by the preview protocol handlers.
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+
+import re
+from typing import Optional
+
+from lsprotocol.types import Position, Range, TextEdit
+from trlc.lexer import TRLC_Lexer
+
+from server.preview_scan import FieldSpan, FileStructure, RecordSpan
+from server.preview_values import (
+    PreviewEditError,
+    field_kind,
+    format_value,
+    placeholder,
+    visible_record_types,
+)
+from server.token_utils import get_location
+
+_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_STEP = "    "
+
+
+def _eol(content: str) -> str:
+    return "\r\n" if "\r\n" in content else "\n"
+
+
+def _line_start(content: str, offset: int) -> int:
+    return content.rfind("\n", 0, offset) + 1
+
+
+def _indent(content: str, offset: int) -> str:
+    """Leading whitespace of the line containing *offset*."""
+    start = _line_start(content, offset)
+    end = start
+    while end < len(content) and content[end] in " \t":
+        end += 1
+    return content[start:end]
+
+
+def _only_space_before(content: str, tok) -> bool:
+    start = tok.location.start_pos
+    return not content[_line_start(content, start) : start].strip()
+
+
+def _doc_end(content: str) -> Position:
+    return Position(
+        line=content.count("\n"),
+        character=len(content) - _line_start(content, len(content)),
+    )
+
+
+def _start(tok) -> Position:
+    return get_location(tok).range.start
+
+
+def _end(tok) -> Position:
+    return get_location(tok).range.end
+
+
+def _insert_before_ket(
+    content: str, ket, indent: str, closing_indent: str, text: str
+) -> TextEdit:
+    """Insert *text* (already EOL-joined) before the closing ``}``."""
+    eol = _eol(content)
+    if _only_space_before(content, ket):
+        pos = Position(line=_start(ket).line, character=0)
+        new_text = indent + text + eol
+    else:
+        pos = _start(ket)
+        new_text = eol + indent + text + eol + closing_indent
+    return TextEdit(range=Range(start=pos, end=pos), new_text=new_text)
+
+
+def _find_component(rec: RecordSpan, field: str):
+    for comp in rec.obj.n_typ.all_components():
+        if comp.name == field:
+            return comp
+    raise PreviewEditError(f"Record '{rec.obj.name}' has no field '{field}'.")
+
+
+def _replace_value(tokens: list, span: FieldSpan, text: str) -> TextEdit:
+    # Keep any comment between '=' and the value.
+    first = span.value_first
+    while first < span.value_last and tokens[first].kind == "COMMENT":
+        first += 1
+    return TextEdit(
+        range=Range(
+            start=_start(tokens[first]), end=_end(tokens[span.value_last])
+        ),
+        new_text=text,
+    )
+
+
+def _rest_of_line_is_comment(content: str, tokens: list, last: int) -> bool:
+    """True if only whitespace/comments follow token *last* on its line."""
+    newline = content.find("\n", tokens[last].location.end_pos + 1)
+    line_end = len(content) if newline < 0 else newline
+    for tok in tokens[last + 1 :]:
+        if tok.kind == "EOF" or tok.location.start_pos >= line_end:
+            break
+        if tok.kind != "COMMENT" or tok.location.end_pos > line_end:
+            return False
+    return True
+
+
+def _delete_assignment(
+    content: str, tokens: list, span: FieldSpan
+) -> TextEdit:
+    name_tok = tokens[span.name_tok]
+    last_tok = tokens[span.value_last]
+    if _only_space_before(content, name_tok) and _rest_of_line_is_comment(
+        content, tokens, span.value_last
+    ):
+        start = Position(line=_start(name_tok).line, character=0)
+        if content.find("\n", last_tok.location.end_pos + 1) < 0:
+            end = _doc_end(content)
+        else:
+            end = Position(line=_end(last_tok).line + 1, character=0)
+    else:
+        start, end = _start(name_tok), _end(last_tok)
+    return TextEdit(range=Range(start=start, end=end), new_text="")
+
+
+def _field_indent(content: str, structure: FileStructure, rec) -> str:
+    tokens = structure.tokens
+    if rec.fields:
+        first = min(span.name_tok for span in rec.fields.values())
+        return _indent(content, tokens[first].location.start_pos)
+    return _indent(content, tokens[rec.name_tok].location.start_pos) + _STEP
+
+
+def set_field_edits(
+    structure: FileStructure,
+    content: str,
+    cur_package,
+    record: str,
+    field: str,
+    value: Optional[str],
+) -> "list[TextEdit]":
+    """Edits that set (or, with ``value=None``, unset) a record field."""
+    rec = structure.record(record)
+    if rec is None:
+        raise PreviewEditError(f"Record '{record}' not found.")
+    comp = _find_component(rec, field)
+    if rec.obj.n_typ.is_frozen(comp):
+        raise PreviewEditError(f"Field '{field}' is frozen.")
+    if value is None and not comp.optional:
+        raise PreviewEditError(f"Field '{field}' is required.")
+
+    tokens = structure.tokens
+    span = rec.fields.get(field)
+    if value is None:
+        if span is None:
+            return []
+        return [_delete_assignment(content, tokens, span)]
+
+    text = format_value(field_kind(comp.n_typ), value, comp.n_typ, cur_package)
+    if span is not None:
+        return [_replace_value(tokens, span, text)]
+    return [
+        _insert_before_ket(
+            content,
+            tokens[rec.close_tok],
+            _field_indent(content, structure, rec),
+            _indent(content, tokens[rec.name_tok].location.start_pos),
+            f"{field} = {text}",
+        )
+    ]
+
+
+def _record_text(cu, type_name: str, name: str, eol: str) -> str:
+    """Record declaration; lines after the first are joined by *eol*."""
+    typ = visible_record_types(cu)[type_name]
+    lines = [f"{type_name} {name} {{"]
+    for comp in typ.all_components():
+        if comp.optional or typ.is_frozen(comp):
+            continue
+        text = placeholder(field_kind(comp.n_typ), comp.n_typ, cu.package)
+        if text is not None:
+            lines.append(f"{_STEP}{comp.name} = {text}")
+    lines.append("}")
+    return eol.join(lines)
+
+
+def add_record_edits(
+    structure: FileStructure,
+    content: str,
+    cu,
+    section_id: Optional[int],
+    type_name: str,
+    name: str,
+) -> "list[TextEdit]":
+    """Edits that add a new record at file level or into a section."""
+    if not _NAME.match(name) or name in TRLC_Lexer.KEYWORDS:
+        raise PreviewEditError(f"'{name}' is not a valid record name.")
+    if name in cu.package.symbols:
+        raise PreviewEditError(f"The name '{name}' is already in use.")
+    if type_name not in visible_record_types(cu):
+        raise PreviewEditError(f"Unknown record type '{type_name}'.")
+    section = None
+    if section_id is not None:
+        section = structure.section(section_id)
+        if section is None:
+            raise PreviewEditError("The section no longer exists.")
+
+    eol = _eol(content)
+    if section is None:
+        pos = _doc_end(content)
+        text = _record_text(cu, type_name, name, eol)
+        return [
+            TextEdit(
+                range=Range(start=pos, end=pos), new_text=eol + text + eol
+            )
+        ]
+
+    tokens = structure.tokens
+    closing_indent = _indent(
+        content, tokens[section.keyword_tok].location.start_pos
+    )
+    indent = closing_indent + _STEP
+    return [
+        _insert_before_ket(
+            content,
+            tokens[section.close_tok],
+            indent,
+            closing_indent,
+            _record_text(cu, type_name, name, eol + indent),
+        )
+    ]
