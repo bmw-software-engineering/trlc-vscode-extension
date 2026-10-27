@@ -219,4 +219,36 @@ describe("PreviewController", () => {
 
         sinon.assert.calledWith(post, { type: "error", message: "gone" });
     });
+
+    it("a refresh during an in-flight edit does not drop the edit", async () => {
+        const { deps, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        await ctl.setDocument(URI);
+        let resolveEdit: (r: unknown) => void = () => undefined;
+        deps.sendRequest.withArgs("trlc/previewSetField").returns(new Promise((r) => (resolveEdit = r)));
+
+        const pending = ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "1" });
+        await ctl.refresh();
+        resolveEdit({ edit: { changes: {} } });
+        await pending;
+
+        sinon.assert.calledWith(deps.applyEdit, { changes: {} });
+    });
+
+    it("a stale edit rejection after a document switch posts nothing", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        await ctl.setDocument(URI);
+        let rejectEdit: (e: Error) => void = () => undefined;
+        deps.sendRequest.withArgs("trlc/previewSetField").returns(new Promise((_, rej) => (rejectEdit = rej)));
+
+        const pending = ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "1" });
+        await ctl.setDocument("file:///b.trlc");
+        post.resetHistory();
+        rejectEdit(new Error("late"));
+        await pending;
+
+        sinon.assert.notCalled(post);
+        sinon.assert.notCalled(deps.applyEdit);
+    });
 });

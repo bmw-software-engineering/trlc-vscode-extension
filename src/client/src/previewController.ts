@@ -40,7 +40,9 @@ export interface PreviewDeps {
 /** Host-side logic of the preview: mediates between webview and server. */
 export class PreviewController {
     private currentUri: string | undefined;
-    /** Bumped on every document change and refresh; stale responses are dropped. */
+    /** Bumped only by setDocument; edit results of a previous document are dropped. */
+    private docGen = 0;
+    /** Bumped on every document change and refresh; stale model/error posts are dropped. */
     private seq = 0;
 
     constructor(
@@ -57,6 +59,7 @@ export class PreviewController {
             return;
         }
         this.currentUri = uri;
+        this.docGen++;
         this.seq++;
         await this.refresh();
     }
@@ -120,24 +123,30 @@ export class PreviewController {
     }
 
     private async edit(method: string, params: object): Promise<void> {
-        const seq = this.seq;
-        const stale = (): boolean => seq !== this.seq;
-        const result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
-        if (stale()) {
-            return;
-        }
-        if (result === null || result === undefined) {
-            this.deps.showError("TRLC: No response from the language server.");
-            await this.refresh();
-            return;
-        }
-        if ("error" in result) {
-            this.deps.showError("TRLC: " + result.error);
-            await this.refresh();
-            return;
-        }
-        if (!(await this.deps.applyEdit(result.edit)) && !stale()) {
-            this.deps.showError("TRLC: Could not apply edit.");
+        const gen = this.docGen;
+        const stale = (): boolean => gen !== this.docGen;
+        try {
+            const result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
+            if (stale()) {
+                return;
+            }
+            if (result === null || result === undefined) {
+                this.deps.showError("TRLC: No response from the language server.");
+                await this.refresh();
+                return;
+            }
+            if ("error" in result) {
+                this.deps.showError("TRLC: " + result.error);
+                await this.refresh();
+                return;
+            }
+            if (!(await this.deps.applyEdit(result.edit)) && !stale()) {
+                this.deps.showError("TRLC: Could not apply edit.");
+            }
+        } catch (e) {
+            if (!stale()) {
+                this.postError(e);
+            }
         }
     }
 
