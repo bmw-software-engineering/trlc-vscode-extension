@@ -40,6 +40,8 @@ export interface PreviewDeps {
 /** Host-side logic of the preview: mediates between webview and server. */
 export class PreviewController {
     private currentUri: string | undefined;
+    /** Bumped on every document change and refresh; stale responses are dropped. */
+    private seq = 0;
 
     constructor(
         private readonly deps: PreviewDeps,
@@ -55,6 +57,7 @@ export class PreviewController {
             return;
         }
         this.currentUri = uri;
+        this.seq++;
         await this.refresh();
     }
 
@@ -63,8 +66,16 @@ export class PreviewController {
         if (uri === undefined) {
             return;
         }
-        await this.guarded(async () => {
-            const model = await this.deps.sendRequest<PreviewModel>(PREVIEW_MODEL_METHOD, { uri });
+        const seq = ++this.seq;
+        await this.guarded(seq, async () => {
+            const model = await this.deps.sendRequest<PreviewModel | null | undefined>(PREVIEW_MODEL_METHOD, { uri });
+            if (seq !== this.seq) {
+                return;
+            }
+            if (model === null || model === undefined) {
+                this.post({ type: "error", message: "TRLC: No preview data from the language server." });
+                return;
+            }
             this.post({ type: "model", model });
         });
     }
@@ -74,6 +85,14 @@ export class PreviewController {
         if (uri === undefined) {
             return;
         }
+        try {
+            await this.dispatch(uri, msg);
+        } catch (e) {
+            this.postError(e);
+        }
+    }
+
+    private async dispatch(uri: string, msg: WebviewToHost): Promise<void> {
         switch (msg.type) {
             case "ready":
                 await this.refresh();
@@ -101,24 +120,38 @@ export class PreviewController {
     }
 
     private async edit(method: string, params: object): Promise<void> {
-        await this.guarded(async () => {
-            const result = await this.deps.sendRequest<EditResult>(method, params);
-            if ("error" in result) {
-                this.deps.showError("TRLC: " + result.error);
-                await this.refresh();
-                return;
-            }
-            if (!(await this.deps.applyEdit(result.edit))) {
-                this.deps.showError("TRLC: Could not apply edit.");
-            }
-        });
+        const seq = this.seq;
+        const stale = (): boolean => seq !== this.seq;
+        const result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
+        if (stale()) {
+            return;
+        }
+        if (result === null || result === undefined) {
+            this.deps.showError("TRLC: No response from the language server.");
+            await this.refresh();
+            return;
+        }
+        if ("error" in result) {
+            this.deps.showError("TRLC: " + result.error);
+            await this.refresh();
+            return;
+        }
+        if (!(await this.deps.applyEdit(result.edit)) && !stale()) {
+            this.deps.showError("TRLC: Could not apply edit.");
+        }
     }
 
-    private async guarded(fn: () => Promise<void>): Promise<void> {
+    private async guarded(seq: number, fn: () => Promise<void>): Promise<void> {
         try {
             await fn();
         } catch (e) {
-            this.post({ type: "error", message: e instanceof Error ? e.message : String(e) });
+            if (seq === this.seq) {
+                this.postError(e);
+            }
         }
+    }
+
+    private postError(e: unknown): void {
+        this.post({ type: "error", message: e instanceof Error ? e.message : String(e) });
     }
 }

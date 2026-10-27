@@ -145,4 +145,78 @@ describe("PreviewController", () => {
 
         sinon.assert.calledWith(post, { type: "error", message: "boom" });
     });
+
+    it("drops a stale model when the document changed meanwhile", async () => {
+        const { deps, post, ctl } = setup();
+        const modelB = { ...MODEL, uri: "file:///b.trlc" };
+        let resolveA: (m: PreviewModel) => void = () => undefined;
+        deps.sendRequest.withArgs("trlc/previewModel", { uri: URI }).returns(new Promise((r) => (resolveA = r)));
+        deps.sendRequest.withArgs("trlc/previewModel", { uri: modelB.uri }).resolves(modelB);
+
+        const first = ctl.setDocument(URI);
+        await ctl.setDocument(modelB.uri);
+        resolveA(MODEL);
+        await first;
+
+        sinon.assert.calledOnce(post);
+        sinon.assert.calledWith(post, { type: "model", model: modelB });
+    });
+
+    it("drops a stale model after the document is cleared", async () => {
+        const { deps, post, ctl } = setup();
+        let resolveA: (m: PreviewModel) => void = () => undefined;
+        deps.sendRequest.returns(new Promise((r) => (resolveA = r)));
+
+        const first = ctl.setDocument(URI);
+        await ctl.setDocument(undefined);
+        resolveA(MODEL);
+        await first;
+
+        sinon.assert.notCalled(post);
+    });
+
+    it("refresh with null response posts an error", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.resolves(null);
+
+        await ctl.setDocument(URI);
+
+        sinon.assert.calledOnceWithExactly(post, { type: "error", message: "TRLC: No preview data from the language server." });
+    });
+
+    it("edit with null response shows error and refreshes", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        deps.sendRequest.withArgs("trlc/previewSetField").resolves(null);
+        await ctl.setDocument(URI);
+        post.resetHistory();
+
+        await ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "1" });
+
+        sinon.assert.calledWith(deps.showError, "TRLC: No response from the language server.");
+        sinon.assert.calledWith(post, { type: "model", model: MODEL });
+    });
+
+    it("rejecting applyEdit posts an error", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.resolves(MODEL);
+        await ctl.setDocument(URI);
+        deps.sendRequest.resolves({ edit: {} });
+        deps.applyEdit.rejects(new Error("nope"));
+
+        await ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "1" });
+
+        sinon.assert.calledWith(post, { type: "error", message: "nope" });
+    });
+
+    it("rejecting reveal posts an error instead of rejecting", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.resolves(MODEL);
+        await ctl.setDocument(URI);
+        deps.reveal.throws(new Error("gone"));
+
+        await ctl.handleMessage({ type: "reveal", line: 1 });
+
+        sinon.assert.calledWith(post, { type: "error", message: "gone" });
+    });
 });
