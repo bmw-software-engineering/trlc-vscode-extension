@@ -26,6 +26,7 @@
  */
 
 import { HostToWebview, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
+import { focusLeavesPreview, selectCommitValue, shouldRenderNow } from "./previewFocus";
 import { escapeHtml, renderPreview } from "./previewRender";
 
 declare function acquireVsCodeApi(): { postMessage(msg: WebviewToHost): void };
@@ -58,13 +59,22 @@ function inputHasFocus(): boolean {
     return a !== null && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
 }
 
-window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
-    if (inputHasFocus()) {
-        pending = event.data;
-        return;
+function addFormOpen(): boolean {
+    return root.querySelector(".add-form") !== null;
+}
+
+/** Renders the pending model if that cannot swallow user input. */
+function flushPending(): void {
+    if (pending !== null && shouldRenderNow({ inputFocused: inputHasFocus(), addFormOpen: addFormOpen() })) {
+        const msg = pending;
+        pending = null;
+        render(msg);
     }
-    pending = null;
-    render(event.data);
+}
+
+window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
+    pending = event.data;
+    flushPending();
 });
 
 type Control = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -81,10 +91,11 @@ function commit(el: Control): void {
         return;
     }
     if (el instanceof HTMLSelectElement) {
-        if (el.value === "") {
-            return; // unset selection is not an edit
+        const rendered = Array.from(el.options).find((o) => o.defaultSelected)?.value ?? "";
+        const value = selectCommitValue(el.value, rendered);
+        if (value !== undefined) {
+            post({ type: "setField", record, field, value });
         }
-        post({ type: "setField", record, field, value: el.value });
         return;
     }
     if (el.value === el.defaultValue) {
@@ -107,14 +118,14 @@ root.addEventListener("focusout", (e) => {
     if (t instanceof HTMLTextAreaElement && t.dataset.field !== undefined) {
         commit(t);
     }
+    // Focus moving within the preview (e.g. onto a button being clicked) must
+    // not re-render, or the click would be lost.
+    const next = e.relatedTarget;
+    if (!focusLeavesPreview(next instanceof Node && root.contains(next))) {
+        return;
+    }
     // Defer so document.activeElement reflects the newly focused element.
-    setTimeout(() => {
-        if (pending !== null && !inputHasFocus()) {
-            const msg = pending;
-            pending = null;
-            render(msg);
-        }
-    }, 0);
+    setTimeout(flushPending, 0);
 });
 
 root.addEventListener("keydown", (e) => {
@@ -170,10 +181,19 @@ root.addEventListener("click", (e) => {
             if (form && type !== "" && name !== "") {
                 const sid = form.dataset.sectionId ?? "";
                 post({ type: "addRecord", sectionId: sid === "" ? null : Number(sid), recordType: type, name });
+                // Form is done; let a pending model replace it.
+                form.className = "add-form-done";
+                flushPending();
             }
-        } else if (button.classList.contains("cancel") && currentModel) {
-            render({ type: "model", model: currentModel });
+        } else if (button.classList.contains("cancel")) {
+            const next = pending ?? (currentModel ? ({ type: "model", model: currentModel } as HostToWebview) : null);
+            pending = null;
+            if (next) {
+                render(next);
+            }
+            return;
         }
+        flushPending();
         return;
     }
     const link = target.closest<HTMLElement>("a.record-name");

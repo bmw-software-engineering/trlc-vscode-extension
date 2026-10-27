@@ -116,6 +116,12 @@
             }
         ],
         "menus": {
+            "commandPalette": [
+                {
+                    "command": "extension.openTrlcPreview",
+                    "when": "resourceExtname == .trlc"
+                }
+            ],
             "editor/title": [
                 {
                     "command": "extension.openTrlcPreview",

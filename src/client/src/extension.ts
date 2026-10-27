@@ -40,7 +40,7 @@ import {
 } from "vscode-languageclient/node";
 
 import { createLogger, Logger } from "./log";
-import { registerPreview } from "./previewPanel";
+import { registerPreview, TrlcPreview } from "./previewPanel";
 import { ensureDependencies, registerResetCommand } from "./installer";
 import { buildServerEnv, resolveInterpreter } from "./serverEnv";
 import { ScopeStatus, TrlcStatusBarItem } from "./statusBar";
@@ -49,7 +49,7 @@ import { toScopeFileItems } from "./statusBarFormat";
 let client: LanguageClient;
 let statusBar: TrlcStatusBarItem;
 /** Registered after client.start(); callers must tolerate it being unset. */
-let preview: { refresh(): void; isPreviewing(uri: string): boolean } | undefined;
+let preview: TrlcPreview | undefined;
 
 /** Matches trlc-language-configuration.json's `languages[0].id`. */
 const TRLC_LANGUAGE_ID = "TRLC";

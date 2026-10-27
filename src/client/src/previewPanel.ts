@@ -22,7 +22,7 @@
 import * as path from "path";
 import { randomBytes } from "crypto";
 import { commands, ExtensionContext, Range, TextEditor, Uri, ViewColumn, WebviewPanel, window, workspace } from "vscode";
-import { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClient, WorkspaceEdit as LspWorkspaceEdit } from "vscode-languageclient/node";
 
 import { PreviewController } from "./previewController";
 import { HostToWebview, WebviewToHost } from "./previewProtocol";
@@ -40,17 +40,19 @@ function isTrlcEditor(editor: TextEditor | undefined): editor is TextEditor {
     );
 }
 
-export function registerPreview(
-    context: ExtensionContext,
-    client: LanguageClient,
-): { refresh(): void; isPreviewing(uri: string): boolean } {
+export interface TrlcPreview {
+    refresh(): void;
+    isPreviewing(uri: string): boolean;
+}
+
+export function registerPreview(context: ExtensionContext, client: LanguageClient): TrlcPreview {
     let panel: WebviewPanel | undefined;
 
     const controller = new PreviewController(
         {
             sendRequest: (method, params) => client.sendRequest(method, params),
             applyEdit: async (edit) => {
-                const converted = await client.protocol2CodeConverter.asWorkspaceEdit(edit as never);
+                const converted = await client.protocol2CodeConverter.asWorkspaceEdit(edit as LspWorkspaceEdit);
                 return converted !== undefined && (await workspace.applyEdit(converted));
             },
             showError: (message) => void window.showErrorMessage(message),
@@ -74,7 +76,7 @@ export function registerPreview(
         void controller.setDocument(uri);
     };
 
-    const open = (): void => {
+    const open = (arg?: unknown): void => {
         if (panel) {
             panel.reveal(undefined, true);
         } else {
@@ -94,6 +96,15 @@ export function registerPreview(
                 panel = undefined;
                 void controller.setDocument(undefined);
             });
+        }
+        if (arg instanceof Uri) {
+            if (arg.path.toLowerCase().endsWith(".trlc")) {
+                if (panel) {
+                    panel.title = `Preview ${path.basename(arg.path)}`;
+                }
+                void controller.setDocument(arg.toString());
+            }
+            return;
         }
         const editor = window.activeTextEditor;
         if (isTrlcEditor(editor)) {
