@@ -35,6 +35,7 @@ from trlc.trlc import Source_Manager
 from server.preview_values import (
     PreviewEditError,
     field_kind,
+    format_markdown,
     format_value,
     placeholder,
     type_ref,
@@ -285,3 +286,41 @@ def test_format_integer_accepts_hex_and_binary(value, expected):
     # TRLC lexes it to the integer literal we expect.
     literal = [t for t in _lex(value) if t.kind == "INTEGER"]
     assert [t.value for t in literal] == [expected]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "A paragraph with **bold** text.",
+        "| a | b |\n|---|---|\n| 1 | 2 |",
+        "```py\nx = 1\n```",
+        "intro\n\n- a\n  - b\n- c",
+    ],
+)
+def test_markdown_round_trip(raw):
+    literal = format_markdown(raw, "    ", "\n")
+    assert triple_quoted_string_value(literal) == raw
+
+
+def test_markdown_layout():
+    assert (
+        format_markdown("a\n\nb", "    ", "\n")
+        == "'''\n        a\n\n        b\n    '''"
+    )
+
+
+def test_markdown_normalises_input():
+    literal = format_markdown("\r\n\r\na  \r\n\r\nb\t\r\n\r\n", "", "\r\n")
+    assert literal == "'''\r\n    a\r\n\r\n    b\r\n'''"
+
+
+def test_markdown_unrepresentable_nesting_rejected():
+    with pytest.raises(PreviewEditError, match="indentation"):
+        format_markdown("- a\n  - b", "    ", "\n")
+
+
+def test_markdown_uses_double_quotes_when_needed():
+    raw = "it's '''q'''"
+    literal = format_markdown(raw, "", "\n")
+    assert literal.startswith('"""') and literal.endswith('"""')
+    assert triple_quoted_string_value(literal) == raw

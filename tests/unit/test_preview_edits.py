@@ -21,6 +21,7 @@
 # pylint: disable=missing-function-docstring
 # The fixture deliberately mirrors the one in test_preview_scan.py.
 # pylint: disable=duplicate-code
+# pylint: disable=too-many-arguments,too-many-positional-arguments
 
 import dataclasses
 import io
@@ -111,7 +112,7 @@ def apply_text_edits(content, edits):
     return content
 
 
-def _set(tmp_path, content, record, field, value):
+def _set(tmp_path, content, record, field, value, markdown=()):
     _, parsed = _parse(tmp_path, content)
     structure = scan_file(parsed.lexer.tokens)
     edits = set_field_edits(
@@ -121,6 +122,7 @@ def _set(tmp_path, content, record, field, value):
         record,
         field,
         value,
+        markdown,
     )
     return apply_text_edits(content, edits)
 
@@ -416,3 +418,25 @@ def test_add_record_into_unclosed_section_rejected(tmp_path):
     src = 'package Types\nsection "A" {\nMyRecord q { x = 1 y = 2 }\n'
     with pytest.raises(PreviewEditError, match="not closed"):
         _add(tmp_path, src, 0, "MyRecord", "n1")
+
+
+def test_set_markdown_field_writes_block(tmp_path):
+    value = "intro\n\n| a | b |\n|---|---|\n| 1 | 2 |"
+    out = _set(tmp_path, TRLC, "r1", "text", value, ("text",))
+    assert _reparse_ok(tmp_path, out)["r1"].field["text"].value == value
+    lines = out.split("\n")
+    start = lines.index("        text = '''")
+    assert lines[start + 1] == "            intro"
+    assert lines[start + 6] == "        '''"
+
+
+def test_set_markdown_field_crlf(tmp_path):
+    src = TRLC.replace("\n", "\r\n")
+    out = _set(tmp_path, src, "r1", "text", "a\n\nb", ("text",))
+    assert "\n" not in out.replace("\r\n", "")
+    assert _reparse_ok(tmp_path, out)["r1"].field["text"].value == "a\n\nb"
+
+
+def test_set_markdown_field_unrepresentable_rejected(tmp_path):
+    with pytest.raises(PreviewEditError):
+        _set(tmp_path, TRLC, "r1", "text", "- a\n  - b", ("text",))

@@ -36,6 +36,7 @@ from server.preview_scan import FieldSpan, FileStructure, RecordSpan
 from server.preview_values import (
     PreviewEditError,
     field_kind,
+    format_markdown,
     format_value,
     placeholder,
     visible_record_types,
@@ -191,8 +192,13 @@ def set_field_edits(
     record: str,
     field: str,
     value: Optional[str],
+    markdown_components: "tuple[str, ...]" = (),
 ) -> "list[TextEdit]":
-    """Edits that set (or, with ``value=None``, unset) a record field."""
+    """Edits that set (or, with ``value=None``, unset) a record field.
+
+    String fields named in *markdown_components* are written as
+    indented triple-quoted Markdown blocks.
+    """
     rec = structure.record(record)
     if rec is None:
         raise PreviewEditError(f"Record '{record}' not found.")
@@ -220,9 +226,15 @@ def set_field_edits(
             return []
         return _to_utf16(content, [_delete_assignment(content, tokens, span)])
 
-    text = format_value(field_kind(comp.n_typ), value, comp.n_typ, cur_package)
-    # Multi-line string literals must use the file's line endings.
-    text = text.replace("\n", _eol(content))
+    kind = field_kind(comp.n_typ)
+    if kind == "string" and field in markdown_components:
+        text = format_markdown(
+            value, _field_indent(content, structure, rec), _eol(content)
+        )
+    else:
+        text = format_value(kind, value, comp.n_typ, cur_package)
+        # Multi-line string literals must use the file's line endings.
+        text = text.replace("\n", _eol(content))
     if span is not None:
         return _to_utf16(content, [_replace_value(tokens, span, text)])
     return _to_utf16(

@@ -44,6 +44,11 @@ _DECIMAL = re.compile(r"^[+-]?\d+(_\d+)*\.\d+(_\d+)*$")
 _REFERENCE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$")
 
 
+_MARKDOWN_STEP = "    "
+_SINGLE3 = "'" * 3
+_DOUBLE3 = '"' * 3
+
+
 class PreviewEditError(Exception):
     """User-facing message in str(e)."""
 
@@ -113,6 +118,33 @@ def _format_string(raw: str) -> str:
         if _lexes_to(literal, triple_quoted_string_value(literal)):
             return literal
     raise PreviewEditError("This text cannot be written as a TRLC string.")
+
+
+def format_markdown(raw: str, indent: str, eol: str) -> str:
+    """Render Markdown as an indented triple-quoted TRLC string.
+
+    Layout: opening quotes, the body indented one step deeper than
+    *indent*, closing quotes at *indent*. The input is normalised first
+    (LF line ends, no trailing whitespace, no outer blank lines). Raises
+    PreviewEditError if TRLC's triple-quote dedent would alter the text.
+    """
+    norm = raw.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.rstrip() for line in norm.split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    expected = "\n".join(lines)
+    body_indent = indent + _MARKDOWN_STEP
+    body = "\n".join(body_indent + line if line else "" for line in lines)
+    quote = _SINGLE3 if _SINGLE3 not in expected else _DOUBLE3
+    literal = f"{quote}\n{body}\n{indent}{quote}"
+    if quote in expected or not _lexes_to(literal, expected):
+        raise PreviewEditError(
+            "This Markdown cannot be stored as a TRLC string "
+            "(indentation of the first lines would be lost)."
+        )
+    return literal.replace("\n", eol)
 
 
 def _enum_literal(name: str, n_typ, cur_package) -> str:

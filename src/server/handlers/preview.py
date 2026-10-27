@@ -215,6 +215,7 @@ def register(server: "ServerProtocol") -> None:
                 params.record,
                 params.field,
                 getattr(params, "value", None),
+                ls.get_config_for_uri(params.uri).preview_markdown_components,
             )
         except PreviewEditError as e:
             return _error(str(e))
