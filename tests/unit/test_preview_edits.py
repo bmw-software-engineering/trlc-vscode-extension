@@ -81,10 +81,18 @@ def _parse(tmp_path, content):
 
 
 def _offset(content, pos):
+    """String offset of an LSP position (character in UTF-16 code units,
+    as VS Code interprets it)."""
     line_start = 0
     for _ in range(pos.line):
         line_start = content.index("\n", line_start) + 1
-    return line_start + pos.character
+    units = 0
+    offset = line_start
+    while units < pos.character:
+        units += 2 if ord(content[offset]) > 0xFFFF else 1
+        offset += 1
+    assert units == pos.character, "position splits a surrogate pair"
+    return offset
 
 
 def apply_text_edits(content, edits):
@@ -375,3 +383,36 @@ def test_crlf_multiline_string(tmp_path):
     assert "\n" not in out.replace("\r\n", "")
     assert _reparse_ok(tmp_path, out)["r1"].field["text"].value == "c\nd"
     assert _set(tmp_path, out, "r1", "text", None) == src
+
+
+def test_positions_are_utf16_after_non_bmp_character(tmp_path):
+    # The emoji is one code point but two UTF-16 code units: positions
+    # after it on the same line must count it twice.
+    src = 'package Types\nMyRecord r1 { text = "😀" x = 1 y = 2 }\n'
+    out = _set(tmp_path, src, "r1", "y", "7")
+    assert _int(_reparse_ok(tmp_path, out)["r1"], "y") == 7
+    out = _set(tmp_path, out, "r1", "text", None)
+    objs = _reparse_ok(tmp_path, out)
+    assert isinstance(objs["r1"].field["text"], Implicit_Null)
+    assert _int(objs["r1"], "y") == 7
+
+
+def test_add_record_into_section_after_non_bmp_character(tmp_path):
+    src = 'package Types\nsection "😀" { MyRecord q { x = 1 y = 2 } }\n'
+    out = _add(tmp_path, src, 0, "MyRecord", "n1")
+    objs = _reparse_ok(tmp_path, out)
+    assert objs["n1"].section[-1] is objs["q"].section[-1]
+
+
+def test_add_record_rejects_too_similar_name(tmp_path):
+    # TRLC rejects names differing only in case/underscores.
+    src = "package Types\nMyRecord q { x = 1 y = 2 }\n"
+    for name in ("Q", "q_"):
+        with pytest.raises(PreviewEditError, match="too similar"):
+            _add(tmp_path, src, None, "MyRecord", name)
+
+
+def test_add_record_into_unclosed_section_rejected(tmp_path):
+    src = 'package Types\nsection "A" {\nMyRecord q { x = 1 y = 2 }\n'
+    with pytest.raises(PreviewEditError, match="not closed"):
+        _add(tmp_path, src, 0, "MyRecord", "n1")

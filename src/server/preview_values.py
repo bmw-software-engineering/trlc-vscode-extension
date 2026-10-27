@@ -33,7 +33,13 @@ from trlc.ast import (
 from trlc.errors import Message_Handler, TRLC_Error
 from trlc.lexer import TRLC_Lexer, triple_quoted_string_value
 
-_INTEGER = re.compile(r"^[+-]?\d+(_\d+)*$")
+# Decimal, hex (0x) and binary (0b) literals with TRLC's '_' separators
+# (each '_' must sit between two digits).
+_INTEGER = re.compile(
+    r"^[+-]?(\d+(_\d+)*"
+    r"|0x[0-9a-fA-F]+(_[0-9a-fA-F]+)*"
+    r"|0b[01]+(_[01]+)*)$"
+)
 _DECIMAL = re.compile(r"^[+-]?\d+(_\d+)*\.\d+(_\d+)*$")
 _REFERENCE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$")
 

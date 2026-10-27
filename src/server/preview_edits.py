@@ -29,7 +29,7 @@ import re
 from typing import Optional
 
 from lsprotocol.types import Position, Range, TextEdit
-from trlc.ast import Implicit_Null
+from trlc.ast import Implicit_Null, Symbol_Table
 from trlc.lexer import TRLC_Lexer
 
 from server.preview_scan import FieldSpan, FileStructure, RecordSpan
@@ -73,6 +73,35 @@ def _doc_end(content: str) -> Position:
         line=content.count("\n"),
         character=len(content) - _line_start(content, len(content)),
     )
+
+
+def _utf16_column(line_text: str, column: int) -> int:
+    """UTF-16 code units of the first *column* code points of *line_text*."""
+    prefix = line_text[:column]
+    return column + sum(1 for ch in prefix if ord(ch) > 0xFFFF)
+
+
+def _to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
+    """Convert edit positions from code points to UTF-16 code units.
+
+    TRLC columns count code points; LSP (and VS Code) count UTF-16 code
+    units, so a non-BMP character earlier on a line shifts the column.
+    """
+    lines = content.split("\n")
+
+    def conv(pos: Position) -> Position:
+        text = lines[pos.line] if pos.line < len(lines) else ""
+        return Position(
+            line=pos.line, character=_utf16_column(text, pos.character)
+        )
+
+    return [
+        TextEdit(
+            range=Range(start=conv(e.range.start), end=conv(e.range.end)),
+            new_text=e.new_text,
+        )
+        for e in edits
+    ]
 
 
 def _start(tok) -> Position:
@@ -189,22 +218,25 @@ def set_field_edits(
     if value is None:
         if span is None:
             return []
-        return [_delete_assignment(content, tokens, span)]
+        return _to_utf16(content, [_delete_assignment(content, tokens, span)])
 
     text = format_value(field_kind(comp.n_typ), value, comp.n_typ, cur_package)
     # Multi-line string literals must use the file's line endings.
     text = text.replace("\n", _eol(content))
     if span is not None:
-        return [_replace_value(tokens, span, text)]
-    return [
-        _insert_before_ket(
-            content,
-            tokens[rec.close_tok],
-            _field_indent(content, structure, rec),
-            _indent(content, tokens[rec.name_tok].location.start_pos),
-            f"{field} = {text}",
-        )
-    ]
+        return _to_utf16(content, [_replace_value(tokens, span, text)])
+    return _to_utf16(
+        content,
+        [
+            _insert_before_ket(
+                content,
+                tokens[rec.close_tok],
+                _field_indent(content, structure, rec),
+                _indent(content, tokens[rec.name_tok].location.start_pos),
+                f"{field} = {text}",
+            )
+        ],
+    )
 
 
 def _record_text(cu, type_name: str, name: str, eol: str) -> str:
@@ -232,8 +264,13 @@ def add_record_edits(
     """Edits that add a new record at file level or into a section."""
     if not _NAME.match(name) or name in TRLC_Lexer.KEYWORDS:
         raise PreviewEditError(f"'{name}' is not a valid record name.")
-    if name in cu.package.symbols:
-        raise PreviewEditError(f"The name '{name}' is already in use.")
+    # TRLC's own rule: names must be sufficiently distinct (case and
+    # underscores are ignored), so 'Q' clashes with an existing 'q'.
+    if cu.package.symbols.contains_raw(Symbol_Table.simplified_name(name)):
+        raise PreviewEditError(
+            f"The name '{name}' is already in use (or too similar to "
+            "an existing name)."
+        )
     if type_name not in visible_record_types(cu):
         raise PreviewEditError(f"Unknown record type '{type_name}'.")
     section = None
@@ -241,28 +278,39 @@ def add_record_edits(
         section = structure.section(section_id)
         if section is None:
             raise PreviewEditError("The section no longer exists.")
+        if section.close_tok is None:
+            raise PreviewEditError(
+                "The section is not closed; fix it in the editor."
+            )
 
     eol = _eol(content)
     if section is None:
         pos = _doc_end(content)
         text = _record_text(cu, type_name, name, eol)
-        return [
-            TextEdit(
-                range=Range(start=pos, end=pos), new_text=eol + text + eol
-            )
-        ]
+        return _to_utf16(
+            content,
+            [
+                TextEdit(
+                    range=Range(start=pos, end=pos),
+                    new_text=eol + text + eol,
+                )
+            ],
+        )
 
     tokens = structure.tokens
     closing_indent = _indent(
         content, tokens[section.keyword_tok].location.start_pos
     )
     indent = closing_indent + _STEP
-    return [
-        _insert_before_ket(
-            content,
-            tokens[section.close_tok],
-            indent,
-            closing_indent,
-            _record_text(cu, type_name, name, eol + indent),
-        )
-    ]
+    return _to_utf16(
+        content,
+        [
+            _insert_before_ket(
+                content,
+                tokens[section.close_tok],
+                indent,
+                closing_indent,
+                _record_text(cu, type_name, name, eol + indent),
+            )
+        ],
+    )

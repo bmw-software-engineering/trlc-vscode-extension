@@ -227,7 +227,23 @@ def test_format_string_quote_endings_use_other_delimiter():
 
 
 @pytest.mark.parametrize(
-    "value", ["1__0", "1_", "_1", "1_.5", "0x1F", "1.5e3", "1.5"]
+    "value",
+    [
+        "1__0",
+        "1_",
+        "_1",
+        "1_.5",
+        "1.5e3",
+        "1.5",
+        "0x",
+        "0x_1",
+        "0x1_",
+        "0xG",
+        "0X1F",
+        "0b",
+        "0b102",
+        "0b1__0",
+    ],
 )
 def test_format_integer_rejects_malformed(value):
     with pytest.raises(PreviewEditError):
@@ -252,3 +268,20 @@ def test_format_reference_validation():
 def test_format_string_fallback_writes_nothing_to_stdout(capsys):
     assert format_value("string", "a\n'", None, None).startswith('"""')
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("0x1F", 31),
+        ("0x1_f", 31),
+        ("0b101", 5),
+        ("0b1_0", 2),
+        ("-0x10", 16),  # sign is a separate operator token
+    ],
+)
+def test_format_integer_accepts_hex_and_binary(value, expected):
+    assert format_value("integer", value, None, None) == value
+    # TRLC lexes it to the integer literal we expect.
+    literal = [t for t in _lex(value) if t.kind == "INTEGER"]
+    assert [t.value for t in literal] == [expected]
