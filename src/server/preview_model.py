@@ -20,7 +20,12 @@
 
 from typing import Optional
 
-from trlc.ast import Enumeration_Literal, Implicit_Null, String_Literal
+from trlc.ast import (
+    Enumeration_Literal,
+    Implicit_Null,
+    Literal,
+    String_Literal,
+)
 
 from server.preview_scan import FileStructure, RecordSpan, scan_file
 from server.preview_values import (
@@ -50,7 +55,7 @@ def _source_text(parsed, structure: FileStructure, span) -> str:
 
 
 def _field_value(parsed, structure, rec: RecordSpan, comp, expr):
-    if isinstance(expr, Implicit_Null):
+    if expr is None or isinstance(expr, Implicit_Null):
         return None
     if isinstance(expr, String_Literal):
         return expr.value
@@ -58,7 +63,8 @@ def _field_value(parsed, structure, rec: RecordSpan, comp, expr):
         return expr.value.name
     span = rec.fields.get(comp.name)
     if span is None:
-        return None
+        # e.g. a frozen component: the value comes from the type.
+        return expr.to_string() if isinstance(expr, Literal) else None
     return _source_text(parsed, structure, span)
 
 
@@ -77,7 +83,7 @@ def _fields(parsed, structure, rec: RecordSpan) -> list:
                 "name": comp.name,
                 "kind": kind,
                 "value": _field_value(
-                    parsed, structure, rec, comp, obj.field[comp.name]
+                    parsed, structure, rec, comp, obj.field.get(comp.name)
                 ),
                 "optional": bool(comp.optional),
                 "editable": not obj.n_typ.is_frozen(comp),

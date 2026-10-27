@@ -96,6 +96,20 @@ def _field_end(tokens: list, first: int, stop: int) -> int:
     return last
 
 
+def _match_brace(tokens: list, open_idx: int) -> Optional[int]:
+    """Index of the ``}`` matching the ``{`` at *open_idx*, or None."""
+    depth = 0
+    for idx in range(open_idx, len(tokens)):
+        kind = tokens[idx].kind
+        if kind == "C_BRA":
+            depth += 1
+        elif kind == "C_KET":
+            depth -= 1
+            if depth == 0:
+                return idx
+    return None
+
+
 def _scan_record(tokens: list, start: int, section_id: Optional[int]):
     """Scan the record whose name token is at *start*.
 
@@ -109,6 +123,10 @@ def _scan_record(tokens: list, start: int, section_id: Optional[int]):
         if tok.kind == "C_KET" and tok.ast_link is obj:
             close = idx
             break
+    if close is None:
+        # TRLC skips linking the closing brace when it reports an error
+        # such as a missing required component; match braces instead.
+        close = _match_brace(tokens, start + 1)
     if close is None:
         return None
 

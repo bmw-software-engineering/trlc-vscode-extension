@@ -138,3 +138,44 @@ def test_unavailable_model():
     assert m["editable"] is False
     assert m["reason"] == "broken"
     assert m["uri"] == "file:///x.trlc"
+
+
+def _build(tmp_path, rsl, src):
+    sm = Source_Manager(Message_Handler())
+    for name, text in (("p.rsl", rsl), ("p.trlc", src)):
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        sm.register_file(str(tmp_path / name), text)
+    sm.process()
+    return build_preview_model(
+        "file:///p.trlc", sm.all_files[str(tmp_path / "p.trlc")]
+    )
+
+
+def test_record_missing_required_component_appears(tmp_path):
+    rsl = "package P\ntype T {\n    a Integer\n    b Integer\n}\n"
+    src = "package P\nT r1 { a = 1 }\n"
+    nodes = _build(tmp_path, rsl, src)["nodes"]
+    assert [n["name"] for n in nodes] == ["r1"]
+    fields = {f["name"]: f for f in nodes[0]["fields"]}
+    assert fields["a"]["value"] == "1"
+    assert fields["b"]["value"] is None
+    assert fields["b"]["optional"] is False
+
+
+def test_frozen_component_shows_value(tmp_path):
+    rsl = (
+        "package P\ntype B {\n    x Integer\n}\n"
+        "type D extends B {\n    freeze x = 7\n}\n"
+    )
+    src = "package P\nD r1 { }\n"
+    nodes = _build(tmp_path, rsl, src)["nodes"]
+    field = nodes[0]["fields"][0]
+    assert field["value"] == "7"
+    assert field["editable"] is False
+
+
+def test_array_value_is_source_text(tmp_path):
+    rsl = "package P\ntype T {\n    tags optional String [0 .. *]\n}\n"
+    src = 'package P\nT r1 { tags = ["a", "b"] }\n'
+    nodes = _build(tmp_path, rsl, src)["nodes"]
+    assert nodes[0]["fields"][0]["value"] == '["a", "b"]'

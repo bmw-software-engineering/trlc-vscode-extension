@@ -97,3 +97,22 @@ def test_inline_record_fields(structure):
 
 def test_unknown_record_returns_none(structure):
     assert structure.record("nope") is None
+
+
+def test_record_missing_required_component_is_kept(tmp_path):
+    rsl = "package P\ntype T {\n    a Integer\n    b Integer\n}\n"
+    src = "package P\nT r1 { a = 1 }\nT r2 { a = 2 b = 3 }\n"
+    (tmp_path / "p.rsl").write_text(rsl, encoding="utf-8")
+    (tmp_path / "p.trlc").write_text(src, encoding="utf-8")
+    sm = Source_Manager(Message_Handler())
+    sm.register_file(str(tmp_path / "p.rsl"), rsl)
+    sm.register_file(str(tmp_path / "p.trlc"), src)
+    sm.process()
+    tokens = sm.all_files[str(tmp_path / "p.trlc")].lexer.tokens
+    structure = scan_file(tokens)
+    rec = structure.record("r1")
+    assert rec is not None
+    assert tokens[rec.close_tok].kind == "C_KET"
+    assert tokens[rec.close_tok].location.line_no == 2
+    assert list(rec.fields) == ["a"]
+    assert structure.record("r2") is not None
