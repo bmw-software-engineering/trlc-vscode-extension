@@ -95,6 +95,10 @@ class Vscode_Message_Handler(Message_Handler):
                 kind, DiagnosticSeverity.Error
             ),
             code=category,
+            # The TRLC kind lets consumers (e.g. the preview's read-only
+            # rule) tell syntax/semantic errors from failing user checks,
+            # which share the Error severity.
+            data={"kind": getattr(kind, "name", str(kind))},
         )
         uri = self._location_to_uri(location)
         self.diagnostics.setdefault(uri, []).append(diag)

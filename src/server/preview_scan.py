@@ -54,14 +54,18 @@ class RecordSpan:
 
 @dataclass(frozen=True)
 class SectionSpan:
-    """Token range of one section."""
+    """Token range of one section.
+
+    ``close_tok`` is None for a section still open at the end of the
+    file (TRLC's error recovery keeps such files around).
+    """
 
     section_id: int
     title: str
     depth: int
     parent_id: Optional[int]
     keyword_tok: int
-    close_tok: int
+    close_tok: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -201,5 +205,9 @@ def scan_file(tokens: list) -> FileStructure:
                 records.append(scanned[0])
                 idx = scanned[1]
         idx += 1
+    # Sections still open at EOF (a syntax error): keep them, unclosed, so
+    # their records stay attached to a known section.
+    for sec_id, kw, title, depth, parent in stack:
+        sections.append(SectionSpan(sec_id, title, depth, parent, kw, None))
     sections.sort(key=lambda s: s.section_id)
     return FileStructure(tokens, sections, records)

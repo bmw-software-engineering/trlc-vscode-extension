@@ -173,13 +173,19 @@ class FakeLanguageServer(HandlerRegistryMixin):
     #: "" — same as the old fixed stub, needed by semantic_tokens's
     #: not-yet-parsed fallback.
     _uri_contents: dict = field(default_factory=dict)
+    #: uri -> live buffer version (default 1) reported by the stub
+    #: workspace.get_text_document().
+    _uri_versions: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.refs = ReferenceResolver()
         self.workspace.get_text_document.side_effect = self._get_text_document
 
     def _get_text_document(self, uri):
-        return MagicMock(source=self._uri_contents.get(uri, ""))
+        return MagicMock(
+            source=self._uri_contents.get(uri, ""),
+            version=self._uri_versions.get(uri, 1),
+        )
 
     # -- ServerProtocol methods ------------------------------------------
 
@@ -236,15 +242,22 @@ class FakeLanguageServer(HandlerRegistryMixin):
 # ---------------------------------------------------------------------------
 
 
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments  # test helper
 def _parse_trlc(
-    rsl_content: str, rsl_path: str, trlc_content: str, trlc_path: str, tmp_dir
+    rsl_content: str,
+    rsl_path: str,
+    trlc_content: str,
+    trlc_path: str,
+    tmp_dir,
+    mh=None,
 ):
     """Run a minimal TRLC parse and return (symbols, all_files, rsl_abs, trlc_abs).
 
     *tmp_dir* must be a directory that outlives the caller; the returned
     file paths point into it.  Using a pytest-managed temp directory
     (e.g. from ``tmp_path_factory``) ensures the files exist for the
-    full fixture lifetime.
+    full fixture lifetime. *mh* (default: a plain TRLC Message_Handler)
+    collects the diagnostics.
     """
     # normalize_fs_path so all_files is keyed the same way production keys it
     # (Vscode_Source_Manager.register_file normalizes every key). This bare
@@ -260,7 +273,8 @@ def _parse_trlc(
     with open(trlc_file, "w", encoding="utf-8") as f:
         f.write(trlc_content)
 
-    mh = trlc.errors.Message_Handler()
+    if mh is None:
+        mh = trlc.errors.Message_Handler()
     sm = trlc.trlc.Source_Manager(mh=mh, verify_mode=False)
     sm.register_file(rsl_file)
     sm.register_file(trlc_file)

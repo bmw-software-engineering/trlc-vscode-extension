@@ -179,3 +179,26 @@ def test_array_value_is_source_text(tmp_path):
     src = 'package P\nT r1 { tags = ["a", "b"] }\n'
     nodes = _build(tmp_path, rsl, src)["nodes"]
     assert nodes[0]["fields"][0]["value"] == '["a", "b"]'
+
+
+def test_sections_open_at_eof_keep_their_records(tmp_path):
+    # TRLC's error recovery keeps a file whose sections are never closed.
+    rsl = "package P\ntype T {\n    a Integer\n}\n"
+    src = (
+        'package P\nsection "A" {\nT r1 { a = 1 }\n'
+        'section "B" {\nT r2 { a = 2 }\n'
+    )
+    nodes = _build(tmp_path, rsl, src)["nodes"]
+    assert len(nodes) == 1
+    outer = nodes[0]
+    assert outer["title"] == "A"
+    assert outer["closed"] is False
+    assert outer["children"][0]["name"] == "r1"
+    inner = outer["children"][1]
+    assert inner["title"] == "B"
+    assert inner["closed"] is False
+    assert [c["name"] for c in inner["children"]] == ["r2"]
+
+
+def test_closed_sections_are_marked_closed(model):
+    assert model["nodes"][0]["closed"] is True

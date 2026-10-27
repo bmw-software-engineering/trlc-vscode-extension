@@ -116,6 +116,8 @@ def build_preview_model(uri: str, parsed) -> dict:
             "sectionId": sec.section_id,
             "title": sec.title,
             "depth": sec.depth,
+            # False for a section still open at EOF: no add-record target.
+            "closed": sec.close_tok is not None,
             "children": [],
         }
         for sec in structure.sections

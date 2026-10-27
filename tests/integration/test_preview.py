@@ -20,9 +20,9 @@
 """Integration tests for the trlc/preview* custom requests."""
 
 # pylint: disable=missing-class-docstring,missing-function-docstring
-# pylint: disable=protected-access  # client Object namedtuple key ``_0``
 
 from .conftest import RSL_TEXT, TRLC_TEXT
+from .content import INVALID_TRLC_TEXT
 from .lsp_helpers import open_document, wait_for_diagnostics
 
 
@@ -50,9 +50,11 @@ class TestPreview:
                 "value": "5",
             },
         )
-        # The client delivers JSON objects as namedtuples; a uri key (not a
-        # valid identifier) becomes ``_0``.
-        assert result.edit.changes._0[0].newText == "5"
+        # A versioned document edit: only valid against the parsed buffer.
+        (change,) = result.edit.documentChanges
+        assert change.textDocument.uri == sample_uri
+        assert change.textDocument.version == 1
+        assert change.edits[0].newText == "5"
 
         added = await client.protocol.send_request_async(
             "trlc/previewAddRecord",
@@ -64,7 +66,8 @@ class TestPreview:
             },
         )
         assert hasattr(added, "edit"), added
-        assert added.edit.changes._0[0].newText.startswith("\nMyRecord fresh")
+        edit = added.edit.documentChanges[0].edits[0]
+        assert edit.newText.startswith("\nMyRecord fresh")
 
     async def test_add_record_into_section_uses_camel_case_section_id(
         self, client, types_uri, sample_uri
@@ -88,6 +91,45 @@ class TestPreview:
             },
         )
 
-        edit = added.edit.changes._0[0]
+        edit = added.edit.documentChanges[0].edits[0]
         # Inside the section: on the closing-brace line (3), not at file end (5).
         assert edit.range.start.line == 3
+
+    async def test_syntax_error_locks_the_file(
+        self, client, types_uri, sample_uri
+    ):
+        text = TRLC_TEXT.replace("x = 1", "x = = 1")
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, text)
+        await wait_for_diagnostics(client, sample_uri)
+
+        model = await client.protocol.send_request_async(
+            "trlc/previewModel", {"uri": sample_uri}
+        )
+        # Error recovery keeps the file parsed: shown, but read-only.
+        assert model.editable is False
+        assert "errors" in model.reason
+        assert model.nodes[0].name == "example"
+
+        result = await client.protocol.send_request_async(
+            "trlc/previewSetField",
+            {
+                "uri": sample_uri,
+                "record": "example",
+                "field": "y",
+                "value": "5",
+            },
+        )
+        assert "errors" in result.error
+
+    async def test_missing_required_value_stays_editable(
+        self, client, types_uri, sample_uri
+    ):
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, INVALID_TRLC_TEXT)
+        await wait_for_diagnostics(client, sample_uri)
+
+        model = await client.protocol.send_request_async(
+            "trlc/previewModel", {"uri": sample_uri}
+        )
+        assert model.editable is True
