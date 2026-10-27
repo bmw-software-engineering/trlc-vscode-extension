@@ -247,3 +247,8 @@ def test_format_reference_validation():
     for bad in ["r1 }", "1abc", "a..b", "a b"]:
         with pytest.raises(PreviewEditError):
             format_value("reference", bad, None, None)
+
+
+def test_format_string_fallback_writes_nothing_to_stdout(capsys):
+    assert format_value("string", "a\n'", None, None).startswith('"""')
+    assert capsys.readouterr().out == ""

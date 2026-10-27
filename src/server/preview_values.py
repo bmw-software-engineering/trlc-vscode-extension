@@ -18,6 +18,7 @@
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 """Value kinds and TRLC literal formatting for the preview editor."""
 
+import io
 import re
 from typing import Optional
 
@@ -69,7 +70,9 @@ def type_ref(entity, cur_package) -> str:
 def _lexes_to(literal: str, expected: str) -> bool:
     """True if literal lexes to exactly one STRING token == expected."""
     # The newline avoids a TRLC lexer quirk at the very end of input.
-    lexer = TRLC_Lexer(Message_Handler(), "preview", literal + "\n")
+    lexer = TRLC_Lexer(
+        Message_Handler(out=io.StringIO()), "preview", literal + "\n"
+    )
     try:
         first = lexer.token()
         second = lexer.token()
