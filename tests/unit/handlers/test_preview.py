@@ -29,6 +29,7 @@ import pytest
 from server.handlers import preview as preview_mod
 from server.message_handler import Vscode_Message_Handler
 from server.parse_context import ParseResult
+from server.server_config import ServerConfig
 from server.token_utils import uri_from_file
 from tests.unit.handlers.conftest import FakeVSM, _parse_trlc
 
@@ -263,3 +264,25 @@ class TestPreviewLockRule:
         model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
         assert model["editable"] is True
         assert "edit" in set_fn(fake_ls, _set_o(uri))
+
+
+def test_handler_model_uses_config_markdown_components(
+    fake_ls, handlers, tmp_path
+):
+    model_fn, _, _ = handlers
+    rsl = "package P\ntype T {\n    description String\n    x Integer\n}\n"
+    src = 'package P\nT r { description = "hi" x = 1 }\n'
+    stab, all_files, _, trlc_file = _parse_trlc(
+        rsl, "p.rsl", src, "p.trlc", tmp_path
+    )
+    vsm = FakeVSM(stab=stab, all_files=all_files)
+    uri = uri_from_file(trlc_file)
+    fake_ls.open_scope("md-scope", uri, src, vsm)
+    fake_ls.get_context_for_uri(uri).result = ParseResult(
+        vsm=vsm, diagnostics={}
+    )
+    fake_ls.config = ServerConfig(preview_markdown_components=("description",))
+    model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+    fields = {f["name"]: f for f in model["nodes"][0]["fields"]}
+    assert fields["description"]["markdown"] is True
+    assert fields["x"]["markdown"] is False

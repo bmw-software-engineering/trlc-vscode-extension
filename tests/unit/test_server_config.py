@@ -427,3 +427,24 @@ class TestPerFolderConfigResolution:
         store = ContextStore()
         # When/Then: a None folder_uri resolves to the default config
         assert store.get_config_for_uri(None) is store.default_config
+
+
+class TestServerConfigPreviewMarkdown:
+    """Tests for from_dict()'s preview.markdownComponents key."""
+
+    def test_preview_markdown_components_default(self):
+        cfg = ServerConfig.from_dict({})
+        assert cfg.preview_markdown_components == ("description",)
+
+    def test_preview_markdown_components_from_dict(self):
+        cfg = ServerConfig.from_dict(
+            {"preview": {"markdownComponents": ["description", "rationale"]}}
+        )
+        assert cfg.preview_markdown_components == ("description", "rationale")
+
+    def test_preview_markdown_components_invalid_falls_back(self):
+        for bad in ("description", 5, ["ok", 3], None):
+            cfg = ServerConfig.from_dict(
+                {"preview": {"markdownComponents": bad}}
+            )
+            assert cfg.preview_markdown_components == ("description",)

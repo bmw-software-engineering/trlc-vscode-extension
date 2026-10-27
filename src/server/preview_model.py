@@ -68,7 +68,7 @@ def _field_value(parsed, structure, rec: RecordSpan, comp, expr):
     return _source_text(parsed, structure, span)
 
 
-def _fields(parsed, structure, rec: RecordSpan) -> list:
+def _fields(parsed, structure, rec: RecordSpan, markdown) -> list:
     obj = rec.obj
     fields = []
     for comp in obj.n_typ.all_components():
@@ -88,12 +88,13 @@ def _fields(parsed, structure, rec: RecordSpan) -> list:
                 "optional": bool(comp.optional),
                 "editable": not obj.n_typ.is_frozen(comp),
                 "enumValues": enum_values,
+                "markdown": kind == "string" and comp.name in markdown,
             }
         )
     return fields
 
 
-def _record_node(parsed, structure, rec: RecordSpan) -> dict:
+def _record_node(parsed, structure, rec: RecordSpan, markdown) -> dict:
     cur_package = parsed.cu.package
     name_tok = structure.tokens[rec.name_tok]
     return {
@@ -101,12 +102,18 @@ def _record_node(parsed, structure, rec: RecordSpan) -> dict:
         "name": rec.obj.name,
         "type": type_ref(rec.obj.n_typ, cur_package),
         "line": name_tok.location.line_no - 1,
-        "fields": _fields(parsed, structure, rec),
+        "fields": _fields(parsed, structure, rec, markdown),
     }
 
 
-def build_preview_model(uri: str, parsed) -> dict:
-    """Build the preview model for a parsed file."""
+def build_preview_model(
+    uri: str, parsed, markdown_components: "tuple[str, ...]" = ()
+) -> dict:
+    """Build the preview model for a parsed file.
+
+    String fields named in *markdown_components* are flagged
+    ``"markdown": True`` so the client renders and edits them as Markdown.
+    """
     structure = scan_file(parsed.lexer.tokens)
     cu = parsed.cu
 
@@ -135,7 +142,7 @@ def build_preview_model(uri: str, parsed) -> dict:
     for _, item in sorted(items, key=lambda pair: pair[0]):
         if isinstance(item, RecordSpan):
             container(item.section_id).append(
-                _record_node(parsed, structure, item)
+                _record_node(parsed, structure, item, markdown_components)
             )
         else:
             container(item.parent_id).append(section_nodes[item.section_id])

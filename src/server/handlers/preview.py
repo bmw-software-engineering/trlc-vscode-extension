@@ -173,11 +173,12 @@ def _edit_result(uri: str, version: Optional[int], edits) -> dict:
     return {"edit": _CONVERTER.unstructure(edit)}
 
 
-def _model(uri: str, target: _Target) -> dict:
+def _model(ls, uri: str, target: _Target) -> dict:
+    markdown = ls.get_config_for_uri(uri).preview_markdown_components
     if not target.locked:
-        return build_preview_model(uri, target.parsed)
+        return build_preview_model(uri, target.parsed, markdown)
     try:
-        model = build_preview_model(uri, target.parsed)
+        model = build_preview_model(uri, target.parsed, markdown)
     # pylint: disable-next=broad-exception-caught  # error-recovered ASTs can be arbitrarily odd; degrade to "unavailable"
     except Exception:
         return unavailable_model(uri, _NOT_PARSED)
@@ -195,7 +196,7 @@ def register(server: "ServerProtocol") -> None:
         target, failure = _resolve(ls, params.uri)
         if target is None:
             return unavailable_model(params.uri, failure[0])
-        return _model(params.uri, target)
+        return _model(ls, params.uri, target)
 
     @server.feature(PREVIEW_SET_FIELD_METHOD)
     def preview_set_field(ls, params: PreviewSetFieldParams):

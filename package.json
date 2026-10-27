@@ -202,6 +202,13 @@
                     "type": "string",
                     "default": "description",
                     "description": "Component name whose string value is shown on hover when hovering a reference to a record object (e.g. the target of a derived_from entry). Set to an empty string to disable. Only affects object instances - hovering a type/tuple/enum name always shows its own TRLC RSL doc comment, independent of this setting."
+                },
+                "trlcServer.preview.markdownComponents": {
+                    "scope": "resource",
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": ["description"],
+                    "description": "String components rendered and edited as GitHub Flavored Markdown in the TRLC preview."
                 }
             }
         },

@@ -202,3 +202,20 @@ def test_sections_open_at_eof_keep_their_records(tmp_path):
 
 def test_closed_sections_are_marked_closed(model):
     assert model["nodes"][0]["closed"] is True
+
+
+def test_markdown_flag_only_for_configured_string_fields(tmp_path):
+    rsl = "package P\ntype T {\n    description String\n    x Integer\n}\n"
+    src = 'package P\nT r { description = "hi" x = 1 }\n'
+    sm = Source_Manager(Message_Handler())
+    for name, text in (("p.rsl", rsl), ("p.trlc", src)):
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        sm.register_file(str(tmp_path / name), text)
+    sm.process()
+    parsed = sm.all_files[str(tmp_path / "p.trlc")]
+    model = build_preview_model("file:///p.trlc", parsed, ("description", "x"))
+    fields = {f["name"]: f for f in model["nodes"][0]["fields"]}
+    assert fields["description"]["markdown"] is True
+    assert fields["x"]["markdown"] is False
+    default = build_preview_model("file:///p.trlc", parsed)
+    assert all(f["markdown"] is False for f in default["nodes"][0]["fields"])

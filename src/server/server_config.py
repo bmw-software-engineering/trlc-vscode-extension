@@ -122,10 +122,13 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
     #: any) holds a human-readable summary is entirely schema-specific.
     #: Empty string disables the feature.
     hover_description_component: str = "description"
+    #: String component names the preview renders and edits as GitHub
+    #: Flavored Markdown (see server.preview_model).
+    preview_markdown_components: Tuple[str, ...] = ("description",)
     log_level: str = "warning"
 
     @classmethod
-    # pylint: disable-next=too-many-locals,too-many-branches  # straight-line dict->dataclass field mapping
+    # pylint: disable-next=too-many-locals,too-many-branches,too-many-statements  # straight-line dict->dataclass field mapping
     def from_dict(cls, d: dict) -> "ServerConfig":
         """Create a :class:`ServerConfig` from a raw workspace configuration
         dict as received from ``workspace/configuration``.
@@ -133,7 +136,7 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
         Keys: parseMode (directory/workspace/repo/bazel), verify,
         excludePatterns, bazel.executable, bazel.ruleClasses,
         bazel.useSharedServer, bazel.queryTimeoutSeconds,
-        hover.descriptionComponent, logLevel.
+        hover.descriptionComponent, preview.markdownComponents, logLevel.
 
         Legacy key ``parsing`` (partial/full) is still recognized for
         backwards compatibility but maps to parseMode values.
@@ -180,6 +183,14 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
             if raw_hover_component is not None
             else cls.hover_description_component
         )
+        preview = d.get("preview", {}) or {}
+        raw_markdown = preview.get("markdownComponents")
+        if isinstance(raw_markdown, list) and all(
+            isinstance(m, str) for m in raw_markdown
+        ):
+            preview_markdown_components = tuple(raw_markdown)
+        else:
+            preview_markdown_components = cls.preview_markdown_components
         log_level = str(d.get("logLevel", "warning")).lower()
         if log_level not in ("debug", "info", "warning", "error"):
             log_level = "warning"
@@ -226,5 +237,6 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
             bazel_use_shared_server=bool(bazel_use_shared),
             bazel_query_timeout_seconds=bazel_query_timeout,
             hover_description_component=hover_description_component,
+            preview_markdown_components=preview_markdown_components,
             log_level=log_level,
         )
