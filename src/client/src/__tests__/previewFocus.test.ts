@@ -21,7 +21,7 @@
 
 import * as assert from "assert";
 
-import { focusLeavesPreview, selectCommitValue, shouldRenderNow } from "../previewFocus";
+import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "../previewFocus";
 
 describe("previewFocus", () => {
     it("renders only when no input is focused and no add form is open", () => {
@@ -39,5 +39,28 @@ describe("previewFocus", () => {
         assert.strictEqual(selectCommitValue("a", "b"), "a");
         assert.strictEqual(selectCommitValue("", "b"), null);
         assert.strictEqual(selectCommitValue("", ""), undefined);
+    });
+});
+
+describe("textCommitValue", () => {
+    it("clearing an optional non-string field removes it", () => {
+        assert.strictEqual(textCommitValue("", "integer", true), null);
+        assert.strictEqual(textCommitValue("  ", "decimal", true), null);
+        assert.strictEqual(textCommitValue("", "reference", true), null);
+        assert.strictEqual(textCommitValue("", "other", true), null);
+    });
+
+    it("clearing an optional string removes it, whitespace is a value", () => {
+        assert.strictEqual(textCommitValue("", "string", true), null);
+        assert.strictEqual(textCommitValue(" ", "string", true), " ");
+    });
+
+    it("required fields post the text as-is", () => {
+        assert.strictEqual(textCommitValue("", "integer", false), "");
+        assert.strictEqual(textCommitValue("", "string", false), "");
+    });
+
+    it("non-empty input is posted unchanged", () => {
+        assert.strictEqual(textCommitValue(" 5 ", "integer", true), " 5 ");
     });
 });

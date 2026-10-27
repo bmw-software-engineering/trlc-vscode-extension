@@ -25,16 +25,16 @@
  * Must not import `vscode` or node modules.
  */
 
-import { HostToWebview, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
-import { focusLeavesPreview, selectCommitValue, shouldRenderNow } from "./previewFocus";
-import { escapeHtml, renderPreview } from "./previewRender";
+import { HostToWebview, PreviewModel, WebviewToHost } from "./previewProtocol";
+import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "./previewFocus";
+import { escapeHtml, LastNodes, renderErrorBanner, renderNoDocument, renderPreview } from "./previewRender";
 
 declare function acquireVsCodeApi(): { postMessage(msg: WebviewToHost): void };
 
 const vscode = acquireVsCodeApi();
 const root = document.getElementById("root") as HTMLElement;
 
-let lastNodes: PreviewNode[] | null = null;
+let lastNodes: LastNodes | null = null;
 let currentModel: PreviewModel | null = null;
 let pending: HostToWebview | null = null;
 
@@ -44,13 +44,21 @@ function post(msg: WebviewToHost): void {
 
 function render(msg: HostToWebview): void {
     if (msg.type === "error") {
-        root.innerHTML = `<div class="banner">${escapeHtml(msg.message)}</div>`;
+        // Keep the tree: replace only a previous error banner.
+        root.querySelector(".error-banner")?.remove();
+        root.insertAdjacentHTML("afterbegin", renderErrorBanner(msg.message));
+        return;
+    }
+    if (msg.type === "noDocument") {
+        currentModel = null;
+        lastNodes = null;
+        root.innerHTML = renderNoDocument();
         return;
     }
     currentModel = msg.model;
     root.innerHTML = renderPreview(msg.model, lastNodes);
     if (msg.model.nodes !== null) {
-        lastNodes = msg.model.nodes;
+        lastNodes = { uri: msg.model.uri, nodes: msg.model.nodes };
     }
 }
 
@@ -101,7 +109,8 @@ function commit(el: Control): void {
     if (el.value === el.defaultValue) {
         return; // unchanged from what was rendered
     }
-    post({ type: "setField", record, field, value: el.value });
+    const value = textCommitValue(el.value, el.dataset.kind ?? "", el.dataset.optional === "true");
+    post({ type: "setField", record, field, value });
     // Avoid re-posting the same edit on a following blur.
     el.defaultValue = el.value;
 }

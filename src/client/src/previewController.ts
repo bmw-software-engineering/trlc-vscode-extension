@@ -26,6 +26,7 @@ import {
     PREVIEW_MODEL_METHOD,
     PREVIEW_SET_FIELD_METHOD,
     PreviewModel,
+    STALE_CODE,
     WebviewToHost,
 } from "./previewProtocol";
 
@@ -37,6 +38,19 @@ export interface PreviewDeps {
     reveal(uri: string, line: number): void;
 }
 
+/**
+ * True if every versioned TextDocumentEdit in the LSP WorkspaceEdit `edit`
+ * targets the document version that is open now (`versionOf`). The
+ * languageclient's converter drops the version, so it is checked here.
+ */
+export function editMatchesVersions(edit: unknown, versionOf: (uri: string) => number | undefined): boolean {
+    const changes = (edit as { documentChanges?: unknown[] } | null)?.documentChanges ?? [];
+    return changes.every((change) => {
+        const doc = (change as { textDocument?: { uri: string; version?: number | null } }).textDocument;
+        return doc?.version === undefined || doc.version === null || versionOf(doc.uri) === doc.version;
+    });
+}
+
 /** Host-side logic of the preview: mediates between webview and server. */
 export class PreviewController {
     private currentUri: string | undefined;
@@ -44,6 +58,14 @@ export class PreviewController {
     private docGen = 0;
     /** Bumped on every document change and refresh; stale model/error posts are dropped. */
     private seq = 0;
+    /**
+     * Tail of the edit queue. Edits run one at a time: the server computes
+     * positions against its last parse, so the next edit may only be
+     * requested once the previous one has been applied (or has failed).
+     */
+    private editQueue: Promise<void> = Promise.resolve();
+    /** Set while a stale-rejected edit waits for the next editable model. */
+    private modelWaiter: ((retry: boolean) => void) | undefined;
 
     constructor(
         private readonly deps: PreviewDeps,
@@ -61,6 +83,7 @@ export class PreviewController {
         this.currentUri = uri;
         this.docGen++;
         this.seq++;
+        this.releaseWaiter(false);
         await this.refresh();
     }
 
@@ -80,12 +103,19 @@ export class PreviewController {
                 return;
             }
             this.post({ type: "model", model });
+            if (model.editable) {
+                // The server has caught up with the buffer: retry a stale edit.
+                this.releaseWaiter(true);
+            }
         });
     }
 
     async handleMessage(msg: WebviewToHost): Promise<void> {
         const uri = this.currentUri;
         if (uri === undefined) {
+            if (msg.type === "ready") {
+                this.post({ type: "noDocument" });
+            }
             return;
         }
         try {
@@ -122,13 +152,34 @@ export class PreviewController {
         }
     }
 
-    private async edit(method: string, params: object): Promise<void> {
+    /** Queues an edit behind any edit still in flight. */
+    private edit(method: string, params: object): Promise<void> {
         const gen = this.docGen;
+        const run = this.editQueue.then(() => this.runEdit(gen, method, params));
+        this.editQueue = run.catch(() => undefined);
+        return run;
+    }
+
+    private async runEdit(gen: number, method: string, params: object): Promise<void> {
         const stale = (): boolean => gen !== this.docGen;
+        if (stale()) {
+            return;
+        }
         try {
-            const result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
+            let result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
             if (stale()) {
                 return;
+            }
+            if (result && "error" in result && result.code === STALE_CODE) {
+                // The server has not parsed the latest buffer yet (typically
+                // the previous edit): keep this edit and resend it once.
+                if (!(await this.waitForEditableModel()) || stale()) {
+                    return;
+                }
+                result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
+                if (stale()) {
+                    return;
+                }
             }
             if (result === null || result === undefined) {
                 this.deps.showError("TRLC: No response from the language server.");
@@ -148,6 +199,20 @@ export class PreviewController {
                 this.postError(e);
             }
         }
+    }
+
+    /** Resolves true on the next editable model, false if the document changes first. */
+    private waitForEditableModel(): Promise<boolean> {
+        this.releaseWaiter(false);
+        return new Promise((resolve) => {
+            this.modelWaiter = resolve;
+        });
+    }
+
+    private releaseWaiter(retry: boolean): void {
+        const waiter = this.modelWaiter;
+        this.modelWaiter = undefined;
+        waiter?.(retry);
     }
 
     private async guarded(seq: number, fn: () => Promise<void>): Promise<void> {

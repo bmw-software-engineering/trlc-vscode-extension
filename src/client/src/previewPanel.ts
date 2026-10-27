@@ -24,7 +24,7 @@ import { randomBytes } from "crypto";
 import { commands, ExtensionContext, Range, TextEditor, Uri, ViewColumn, WebviewPanel, window, workspace } from "vscode";
 import { LanguageClient, WorkspaceEdit as LspWorkspaceEdit } from "vscode-languageclient/node";
 
-import { PreviewController } from "./previewController";
+import { editMatchesVersions, PreviewController } from "./previewController";
 import { HostToWebview, WebviewToHost } from "./previewProtocol";
 import { previewShellHtml } from "./previewRender";
 
@@ -53,7 +53,14 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
             sendRequest: (method, params) => client.sendRequest(method, params),
             applyEdit: async (edit) => {
                 const converted = await client.protocol2CodeConverter.asWorkspaceEdit(edit as LspWorkspaceEdit);
-                return converted !== undefined && (await workspace.applyEdit(converted));
+                // Checked right before applying: the edit's positions are only
+                // valid for the buffer version the server parsed.
+                const versionOf = (uri: string): number | undefined =>
+                    workspace.textDocuments.find((d) => d.uri.toString() === uri)?.version;
+                if (converted === undefined || !editMatchesVersions(edit, versionOf)) {
+                    return false;
+                }
+                return workspace.applyEdit(converted);
             },
             showError: (message) => void window.showErrorMessage(message),
             reveal: (uri, line) => {
@@ -68,22 +75,33 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
         },
     );
 
-    const follow = (editor: TextEditor): void => {
-        const uri = editor.document.uri.toString();
+    const titleFor = (uri: Uri): string => `Preview ${path.basename(uri.path)}`;
+
+    const follow = (uri: Uri): void => {
         if (panel) {
-            panel.title = `Preview ${path.basename(editor.document.uri.path)}`;
+            panel.title = titleFor(uri);
         }
-        void controller.setDocument(uri);
+        void controller.setDocument(uri.toString());
     };
 
     const open = (arg?: unknown): void => {
+        // An explicit Uri argument (explorer/editor title) wins; a non-.trlc
+        // one previews nothing rather than the active editor.
+        let target: Uri | undefined;
+        if (arg instanceof Uri) {
+            target = arg.path.toLowerCase().endsWith(".trlc") ? arg : undefined;
+        } else {
+            const editor = window.activeTextEditor;
+            target = isTrlcEditor(editor) ? editor.document.uri : undefined;
+        }
         if (panel) {
             panel.reveal(undefined, true);
         } else {
             const outDir = Uri.joinPath(context.extensionUri, "src", "client", "out");
             const created = window.createWebviewPanel(
                 "trlcPreview",
-                "Preview",
+                // Final title right away (no rename after creation).
+                target ? titleFor(target) : "Preview",
                 { viewColumn: ViewColumn.Beside, preserveFocus: true },
                 { enableScripts: true, localResourceRoots: [outDir], retainContextWhenHidden: false },
             );
@@ -97,18 +115,8 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
                 void controller.setDocument(undefined);
             });
         }
-        if (arg instanceof Uri) {
-            if (arg.path.toLowerCase().endsWith(".trlc")) {
-                if (panel) {
-                    panel.title = `Preview ${path.basename(arg.path)}`;
-                }
-                void controller.setDocument(arg.toString());
-            }
-            return;
-        }
-        const editor = window.activeTextEditor;
-        if (isTrlcEditor(editor)) {
-            follow(editor);
+        if (target) {
+            follow(target);
         }
     };
 
@@ -118,7 +126,7 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
         window.onDidChangeActiveTextEditor((editor) => {
             // Ignores undefined (e.g. webview focused) and non-TRLC editors.
             if (panel && isTrlcEditor(editor)) {
-                follow(editor);
+                follow(editor.document.uri);
             }
         }),
     );

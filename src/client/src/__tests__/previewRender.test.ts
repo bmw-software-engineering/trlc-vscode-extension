@@ -22,7 +22,13 @@
 import * as assert from "assert";
 
 import { PreviewField, PreviewModel, PreviewNode } from "../previewProtocol";
-import { escapeHtml, previewShellHtml, renderPreview } from "../previewRender";
+import {
+    escapeHtml,
+    previewShellHtml,
+    renderErrorBanner,
+    renderNoDocument,
+    renderPreview,
+} from "../previewRender";
 
 function field(overrides: Partial<PreviewField> = {}): PreviewField {
     return {
@@ -40,8 +46,14 @@ function record(fields: PreviewField[], name = "R1"): PreviewNode {
     return { kind: "record", name, type: "Pkg.T", line: 4, fields };
 }
 
-function section(depth: number, title: string, children: PreviewNode[] = [], sectionId = 0): PreviewNode {
-    return { kind: "section", sectionId, title, depth, children };
+function section(
+    depth: number,
+    title: string,
+    children: PreviewNode[] = [],
+    sectionId = 0,
+    closed = true
+): PreviewNode {
+    return { kind: "section", sectionId, title, depth, closed, children };
 }
 
 function model(nodes: PreviewNode[] | null, overrides: Partial<PreviewModel> = {}): PreviewModel {
@@ -125,7 +137,10 @@ describe("previewRender", () => {
 
     it("non-editable model shows banner, disables inputs, and falls back to lastNodes", () => {
         const last = [record([field({ optional: true })])];
-        const html = renderPreview(model(null, { editable: false, reason: "has <errors>" }), last);
+        const html = renderPreview(model(null, { editable: false, reason: "has <errors>" }), {
+            uri: "file:///a.trlc",
+            nodes: last,
+        });
         assert.ok(html.includes('<div class="banner">has &lt;errors&gt;</div>'));
         assert.ok(html.includes('data-record="R1"'));
         assert.ok(html.includes("disabled"));
@@ -136,6 +151,30 @@ describe("previewRender", () => {
         const html = renderPreview(model([section(1, "S", [], 0)]), null);
         assert.ok(html.includes('<button class="add-record" data-section-id="0">'));
         assert.ok(html.includes('<button class="add-record" data-section-id="">'));
+    });
+
+    it("does not fall back to the last nodes of another document", () => {
+        const last = { uri: "file:///other.trlc", nodes: [record([field()], "Foreign")] };
+        const html = renderPreview(model(null, { editable: false, reason: "wait" }), last);
+        assert.ok(!html.includes("Foreign"));
+    });
+
+    it("a section still open at EOF has no add-record button", () => {
+        const html = renderPreview(model([section(1, "S", [], 3, false)]), null);
+        assert.ok(!html.includes('data-section-id="3"'));
+        assert.ok(html.includes('<button class="add-record" data-section-id="">'));
+    });
+
+    it("optional fields carry data-optional", () => {
+        const html = renderPreview(model([record([field({ optional: true }), field({ name: "y" })])]), null);
+        assert.ok(html.includes('data-field="x" data-kind="integer" data-optional="true"'));
+        assert.ok(html.includes('data-field="y" data-kind="integer" value="1"'));
+        assert.ok(!html.includes('data-field="y" data-kind="integer" data-optional'));
+    });
+
+    it("error banner and no-document placeholder are escaped", () => {
+        assert.strictEqual(renderErrorBanner("<x>"), '<div class="banner error-banner">&lt;x&gt;</div>');
+        assert.ok(renderNoDocument().includes("Open a .trlc file to preview it."));
     });
 
     it("shell html carries CSP, root and script", () => {

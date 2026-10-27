@@ -28,6 +28,8 @@
 export const PREVIEW_MODEL_METHOD = "trlc/previewModel";
 export const PREVIEW_SET_FIELD_METHOD = "trlc/previewSetField";
 export const PREVIEW_ADD_RECORD_METHOD = "trlc/previewAddRecord";
+/** `code` of an edit rejected because the server's parse is behind the buffer. */
+export const STALE_CODE = "stale";
 
 export type PreviewFieldKind = "string" | "integer" | "decimal" | "boolean" | "enum" | "reference" | "other";
 
@@ -57,6 +59,8 @@ export interface PreviewSectionNode {
     sectionId: number;
     title: string;
     depth: number;
+    /** false for a section still open at end of file (no add-record target). */
+    closed: boolean;
     children: PreviewNode[];
 }
 
@@ -73,10 +77,17 @@ export interface PreviewModel {
     nodes: PreviewNode[] | null;
 }
 
-/** `edit` is an LSP WorkspaceEdit (JSON). */
-export type EditResult = { edit: unknown } | { error: string };
+/**
+ * `edit` is an LSP WorkspaceEdit (JSON) with one versioned TextDocumentEdit
+ * in `documentChanges`. `code` is STALE_CODE when the server's parse is
+ * behind the buffer (the edit can be retried after the next parse).
+ */
+export type EditResult = { edit: unknown } | { error: string; code?: string };
 
-export type HostToWebview = { type: "model"; model: PreviewModel } | { type: "error"; message: string };
+export type HostToWebview =
+    | { type: "model"; model: PreviewModel }
+    | { type: "error"; message: string }
+    | { type: "noDocument" };
 
 export type WebviewToHost =
     | { type: "ready" }

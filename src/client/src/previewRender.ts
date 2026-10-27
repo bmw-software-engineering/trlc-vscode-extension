@@ -43,7 +43,9 @@ function option(value: string, current: string | null): string {
 }
 
 function renderControl(f: PreviewField, locked: boolean): string {
-    const attrs = `data-field="${escapeHtml(f.name)}" data-kind="${escapeHtml(f.kind)}"${locked ? " disabled" : ""}`;
+    const attrs =
+        `data-field="${escapeHtml(f.name)}" data-kind="${escapeHtml(f.kind)}"` +
+        `${f.optional ? ` data-optional="true"` : ""}${locked ? " disabled" : ""}`;
     const value = f.value ?? "";
     if (f.kind === "string") {
         return `<textarea ${attrs} rows="2">${escapeHtml(value)}</textarea>`;
@@ -87,7 +89,8 @@ function renderNode(node: PreviewNode, locked: boolean): string {
             `<h${level} class="section"><span class="hashes">${"#".repeat(node.depth)}</span> ` +
             `${escapeHtml(node.title)}</h${level}>` +
             node.children.map((c) => renderNode(c, locked)).join("") +
-            addRecordButton(node.sectionId, locked) +
+            // A section still open at EOF has no place to insert into.
+            (node.closed ? addRecordButton(node.sectionId, locked) : "") +
             `</div>`
         );
     }
@@ -100,12 +103,31 @@ function renderNode(node: PreviewNode, locked: boolean): string {
     );
 }
 
-/** Body HTML for the model; falls back to `lastNodes` when it has none. */
-export function renderPreview(model: PreviewModel, lastNodes: PreviewNode[] | null): string {
+/** The nodes of the last model that had some, and the document they belong to. */
+export interface LastNodes {
+    uri: string;
+    nodes: PreviewNode[];
+}
+
+/** Body HTML for the model; falls back to `last` (same document only) when it has no nodes. */
+export function renderPreview(model: PreviewModel, last: LastNodes | null): string {
     const locked = !model.editable;
-    const nodes = model.nodes ?? lastNodes ?? [];
+    const fallback = last !== null && last.uri === model.uri ? last.nodes : null;
+    const nodes = model.nodes ?? fallback ?? [];
     const banner = locked ? `<div class="banner">${escapeHtml(model.reason ?? "")}</div>` : "";
     return banner + nodes.map((n) => renderNode(n, locked)).join("") + addRecordButton(null, locked);
+}
+
+/** Banner for a request error; shown above the current tree. */
+export function renderErrorBanner(message: string): string {
+    return `<div class="banner error-banner">${escapeHtml(message)}</div>`;
+}
+
+export const NO_DOCUMENT_MESSAGE = "Open a .trlc file to preview it.";
+
+/** Body HTML when no .trlc document is being previewed. */
+export function renderNoDocument(): string {
+    return `<div class="placeholder">${escapeHtml(NO_DOCUMENT_MESSAGE)}</div>`;
 }
 
 const STYLE = `
@@ -127,6 +149,9 @@ button { color: var(--vscode-button-foreground); background: var(--vscode-button
          border: none; padding: 3px 10px; cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 button.remove { background: transparent; color: var(--vscode-foreground); }
+.error-banner { background: var(--vscode-inputValidation-errorBackground);
+                border-color: var(--vscode-inputValidation-errorBorder); }
+.placeholder { color: var(--vscode-descriptionForeground); }
 `;
 
 export function previewShellHtml(nonce: string, cspSource: string, scriptUri: string): string {

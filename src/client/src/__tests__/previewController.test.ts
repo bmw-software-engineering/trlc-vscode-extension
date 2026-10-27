@@ -19,10 +19,11 @@
  * ----------------------------------------------------------------------- */
 "use strict";
 
+import * as assert from "assert";
 import * as sinon from "sinon";
 
-import { PreviewController, PreviewDeps } from "../previewController";
-import { HostToWebview, PreviewModel } from "../previewProtocol";
+import { editMatchesVersions, PreviewController, PreviewDeps } from "../previewController";
+import { HostToWebview, PreviewModel, WebviewToHost } from "../previewProtocol";
 
 const URI = "file:///a.trlc";
 const MODEL: PreviewModel = {
@@ -115,7 +116,7 @@ describe("PreviewController", () => {
         sinon.assert.calledOnce(deps.sendRequest);
     });
 
-    it("no document -> handleMessage is a no-op", async () => {
+    it("no document -> ready posts noDocument, other messages are no-ops", async () => {
         const { deps, post, ctl } = setup();
 
         await ctl.handleMessage({ type: "ready" });
@@ -124,7 +125,7 @@ describe("PreviewController", () => {
 
         sinon.assert.notCalled(deps.sendRequest);
         sinon.assert.notCalled(deps.reveal);
-        sinon.assert.notCalled(post);
+        sinon.assert.calledOnceWithExactly(post, { type: "noDocument" });
     });
 
     it("reveal delegates to deps", async () => {
@@ -250,5 +251,150 @@ describe("PreviewController", () => {
 
         sinon.assert.notCalled(post);
         sinon.assert.notCalled(deps.applyEdit);
+    });
+
+    describe("edit queue", () => {
+        const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
+        const set = (value: string): WebviewToHost => ({ type: "setField", record: "R", field: "f", value });
+
+        async function ready(): Promise<ReturnType<typeof setup> & { edits: sinon.SinonStub; models: sinon.SinonStub }> {
+            const s = setup();
+            const models = s.deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+            const edits = s.deps.sendRequest.withArgs("trlc/previewSetField");
+            await s.ctl.setDocument(URI);
+            return { ...s, edits, models };
+        }
+
+        it("sends the second edit only after the first applyEdit resolved", async () => {
+            const { deps, ctl, edits } = await ready();
+            edits.callsFake(async (_m: string, p: { value: string }) => ({ edit: { v: p.value } }));
+            let resolveApply: (ok: boolean) => void = () => undefined;
+            deps.applyEdit.onFirstCall().returns(new Promise((r) => (resolveApply = r)));
+
+            const first = ctl.handleMessage(set("a"));
+            const second = ctl.handleMessage(set("b"));
+            await tick();
+
+            sinon.assert.calledOnce(edits);
+            sinon.assert.calledOnce(deps.applyEdit);
+
+            resolveApply(true);
+            await Promise.all([first, second]);
+
+            sinon.assert.calledTwice(edits);
+            assert.strictEqual(edits.secondCall.args[1].value, "b");
+            assert.ok(edits.secondCall.calledAfter(deps.applyEdit.firstCall));
+            sinon.assert.calledWith(deps.applyEdit.secondCall, { v: "b" });
+        });
+
+        it("a failed edit does not block the next one", async () => {
+            const { ctl, edits } = await ready();
+            edits.onFirstCall().rejects(new Error("boom"));
+            edits.onSecondCall().resolves({ edit: {} });
+
+            await Promise.all([ctl.handleMessage(set("a")), ctl.handleMessage(set("b"))]);
+
+            sinon.assert.calledTwice(edits);
+        });
+
+        it("a stale rejection waits silently and resends after the next editable model", async () => {
+            const { deps, ctl, edits } = await ready();
+            edits.onFirstCall().resolves({ error: "wait", code: "stale" });
+            edits.onSecondCall().resolves({ edit: { ok: 1 } });
+
+            const pending = ctl.handleMessage(set("a"));
+            await tick();
+            sinon.assert.calledOnce(edits);
+            sinon.assert.notCalled(deps.showError);
+
+            await ctl.refresh();
+            await pending;
+
+            sinon.assert.calledTwice(edits);
+            sinon.assert.calledWith(deps.applyEdit, { ok: 1 });
+            sinon.assert.notCalled(deps.showError);
+        });
+
+        it("a non-editable model does not trigger the resend", async () => {
+            const { ctl, edits, models } = await ready();
+            edits.onFirstCall().resolves({ error: "wait", code: "stale" });
+            edits.onSecondCall().resolves({ edit: {} });
+
+            const pending = ctl.handleMessage(set("a"));
+            await tick();
+            models.resolves({ ...MODEL, editable: false, reason: "Waiting" });
+            await ctl.refresh();
+            await tick();
+            sinon.assert.calledOnce(edits);
+
+            models.resolves(MODEL);
+            await ctl.refresh();
+            await pending;
+            sinon.assert.calledTwice(edits);
+        });
+
+        it("a second stale rejection is shown", async () => {
+            const { deps, ctl, edits } = await ready();
+            edits.resolves({ error: "wait", code: "stale" });
+
+            const pending = ctl.handleMessage(set("a"));
+            await tick();
+            await ctl.refresh();
+            await pending;
+
+            sinon.assert.calledTwice(edits);
+            sinon.assert.calledOnceWithExactly(deps.showError, "TRLC: wait");
+            sinon.assert.notCalled(deps.applyEdit);
+        });
+
+        it("a document switch drops a waiting stale edit", async () => {
+            const { deps, ctl, edits } = await ready();
+            edits.resolves({ error: "wait", code: "stale" });
+
+            const pending = ctl.handleMessage(set("a"));
+            await tick();
+            await ctl.setDocument("file:///b.trlc");
+            await pending;
+
+            sinon.assert.calledOnce(edits);
+            sinon.assert.notCalled(deps.showError);
+        });
+
+        it("an edit queued behind a waiting stale edit is sent after the retry", async () => {
+            const { ctl, edits } = await ready();
+            edits.onFirstCall().resolves({ error: "wait", code: "stale" });
+            edits.resolves({ edit: {} });
+
+            const first = ctl.handleMessage(set("a"));
+            const second = ctl.handleMessage(set("b"));
+            await tick();
+            sinon.assert.calledOnce(edits);
+
+            await ctl.refresh();
+            await Promise.all([first, second]);
+
+            assert.deepStrictEqual(
+                edits.getCalls().map((c) => c.args[1].value),
+                ["a", "a", "b"]
+            );
+        });
+    });
+});
+
+describe("editMatchesVersions", () => {
+    const edit = (version: number | null | undefined): unknown => ({
+        documentChanges: [{ textDocument: { uri: URI, version }, edits: [] }],
+    });
+    const versionOf = (uri: string): number | undefined => (uri === URI ? 3 : undefined);
+
+    it("accepts the open version and unversioned edits", () => {
+        assert.ok(editMatchesVersions(edit(3), versionOf));
+        assert.ok(editMatchesVersions(edit(null), versionOf));
+        assert.ok(editMatchesVersions({ changes: {} }, versionOf));
+    });
+
+    it("rejects an edit for another version or a document that is not open", () => {
+        assert.ok(!editMatchesVersions(edit(2), versionOf));
+        assert.ok(!editMatchesVersions(edit(3), () => undefined));
     });
 });

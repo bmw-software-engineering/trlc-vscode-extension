@@ -48,3 +48,14 @@ export function selectCommitValue(selected: string, renderedValue: string): stri
     }
     return renderedValue === "" ? undefined : null;
 }
+
+/**
+ * Value to post for a committed text input/textarea. Clearing an optional
+ * field removes its value (null); a required field posts the text as-is so
+ * the server reports why it is invalid. Whitespace counts as empty except
+ * for strings, where it is a legitimate value.
+ */
+export function textCommitValue(value: string, kind: string, optional: boolean): string | null {
+    const empty = kind === "string" ? value === "" : value.trim() === "";
+    return optional && empty ? null : value;
+}
