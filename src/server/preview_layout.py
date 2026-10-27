@@ -100,6 +100,9 @@ def _extent(content: str, tokens: list, first: int, last: int) -> Extent:
         last += 1
     start = tokens[first].location.start_pos
     end = tokens[last].location.end_pos + 1
+    # A '//' comment token keeps the '\r' of a CRLF line end.
+    while end > start and content[end - 1] == "\r":
+        end -= 1
     if not (_first_on_line(content, start) and _rest_blank(content, end)):
         return Extent(start, end, False)
 
@@ -156,20 +159,28 @@ def _step_between(content: str, outer, inner) -> Optional[str]:
     return inner_ws[len(outer_ws) :]
 
 
-def _first_section_step(structure: FileStructure, content: str):
+def _first_section_step(
+    structure: FileStructure, content: str
+) -> Optional[str]:
     if not structure.sections:
         return None
     tokens = structure.tokens
     sec = structure.sections[0]
     stop = len(tokens) if sec.close_tok is None else sec.close_tok
-    # Skip the keyword, the title and the '{'.
-    for idx in range(sec.keyword_tok + 3, stop):
-        if tokens[idx].kind != "COMMENT":
+    # The first non-comment token after the section's '{'.
+    opened = False
+    for idx in range(sec.keyword_tok + 1, stop):
+        kind = tokens[idx].kind
+        if not opened:
+            opened = kind == "C_BRA"
+        elif kind != "COMMENT":
             return _step_between(content, tokens[sec.keyword_tok], tokens[idx])
     return None
 
 
-def _first_record_step(structure: FileStructure, content: str):
+def _first_record_step(
+    structure: FileStructure, content: str
+) -> Optional[str]:
     tokens = structure.tokens
     for rec in structure.records:
         if rec.fields:
@@ -189,16 +200,25 @@ def indent_step(structure: FileStructure, content: str) -> str:
     )
 
 
-def _leading_ws(content: str, start: int, limit: int) -> int:
-    """Count of space/tab characters at *start*, at most *limit*."""
-    count = 0
-    while (
-        count < limit
-        and start + count < len(content)
-        and content[start + count] in " \t"
-    ):
-        count += 1
-    return count
+def _dedent_cut(content: str, pos: int, levels: int, step: str):
+    """(offset to cut to, whether all *levels* were removed).
+
+    Per level, one leading tab or up to a step's width of spaces is
+    removed, never more than the available leading whitespace.
+    """
+    width = len(step.expandtabs(4))
+    cut = pos
+    for _ in range(levels):
+        if cut < len(content) and content[cut] == "\t":
+            cut += 1
+            continue
+        removed = 0
+        while removed < width and cut < len(content) and content[cut] == " ":
+            cut += 1
+            removed += 1
+        if removed < width:
+            return cut, False
+    return cut, True
 
 
 def _line_starts(content: str, start: int, end: int) -> "list[int]":
@@ -230,12 +250,27 @@ def _string_lines(content: str, tokens: list, start: int, end: int) -> dict:
 
 
 def _shift_line(content: str, pos: int, levels: int, step: str):
-    """(offset to cut to, prefix to add) for the line starting at *pos*."""
+    """(cut offset, prefix, complete) for the line starting at *pos*.
+
+    *complete* is False when a dedent ran out of leading whitespace.
+    """
     if levels > 0:
         if _rest_blank(content, pos):
-            return pos, ""
-        return pos, step * levels
-    return pos + _leading_ws(content, pos, -levels * len(step)), ""
+            return pos, "", True
+        return pos, step * levels, True
+    cut, complete = _dedent_cut(content, pos, -levels, step)
+    return cut, "", complete
+
+
+def _has_text(content: str, line: int, tok_end: int) -> bool:
+    """True if the string line at *line* holds more than whitespace.
+
+    *tok_end* is the token's last offset; its closing quotes on the
+    last line do not count as text.
+    """
+    newline = content.find("\n", line, tok_end + 1)
+    text_end = tok_end - 2 if newline < 0 else newline
+    return not _blank(content[line:text_end])
 
 
 def _string_frozen(content: str, tok, levels: int, step: str) -> bool:
@@ -248,14 +283,8 @@ def _string_frozen(content: str, tok, levels: int, step: str) -> bool:
     pos = content.find("\n", loc.start_pos, loc.end_pos)
     while pos >= 0:
         line = pos + 1
-        cut, prefix = _shift_line(content, line, levels, step)
-        newline = content.find("\n", line, loc.end_pos + 1)
-        text_end = loc.end_pos - 2 if newline < 0 else newline
-        if (
-            levels < 0
-            and cut - line < -levels * len(step)
-            and not _blank(content[line:text_end])
-        ):
+        cut, prefix, complete = _shift_line(content, line, levels, step)
+        if not complete and _has_text(content, line, loc.end_pos):
             return True
         edits.append((line, cut, prefix))
         pos = content.find("\n", line, loc.end_pos)
@@ -275,7 +304,8 @@ def shift_block(
 ) -> str:
     """``content[start:end]`` with every line moved by *levels* steps.
 
-    A negative *levels* dedents, removing at most the available leading
+    A negative *levels* dedents, removing per level one leading tab or
+    up to a step's width of spaces, at most the available leading
     whitespace. Blank lines get no indentation. When *start* is not at
     a line start, the partial first line is returned unshifted.
     Continuation lines of a multi-line STRING are shifted like the
@@ -296,7 +326,7 @@ def shift_block(
         tok = owner.get(line)
         if tok is not None and id(tok) in frozen:
             continue
-        cut, prefix = _shift_line(content, line, levels, step)
+        cut, prefix, _ = _shift_line(content, line, levels, step)
         out.append(content[prev:line] + prefix)
         prev = min(cut, end)
     out.append(content[prev:end])

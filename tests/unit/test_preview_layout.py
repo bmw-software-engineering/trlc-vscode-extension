@@ -117,13 +117,14 @@ def test_record_extent_whole_lines_crlf_and_eof(tmp_path):
     assert _text(content, ext) == "// c\r\nMyRecord r1 { x = 1 y = 2 }"
 
 
-def test_record_extent_inline_record_is_token_range(tmp_path):
+@pytest.mark.parametrize("eol", ["\n", "\r\n"])
+def test_record_extent_inline_record_is_token_range(tmp_path, eol):
     content = (
         "package Types\n"
         "// not carried: the record shares its line\n"
         "MyRecord r1 { x = 1 y = 2 } MyRecord r2 { x = 3 y = 4 } // t\n"
         "MyRecord r3 { x = 5 y = 6 }\n"
-    )
+    ).replace("\n", eol)
     structure = _parse(tmp_path, content)
     ext1 = record_extent(structure, content, structure.record("r1"))
     assert not ext1.whole_lines
@@ -191,6 +192,22 @@ def test_section_extent_followed_by_item_is_token_range(tmp_path):
     )
 
 
+@pytest.mark.parametrize("eol", ["\n", "\r\n"])
+def test_section_extent_token_range_with_trailing_comment(tmp_path, eol):
+    content = (
+        "package Types\n"
+        'MyRecord r0 { x = 0 y = 0 } section "A" {\n'
+        "  MyRecord r1 { x = 1 y = 2 }\n"
+        "} // end A\n"
+    ).replace("\n", eol)
+    structure = _parse(tmp_path, content)
+    ext = section_extent(structure, content, structure.sections[0])
+    assert not ext.whole_lines
+    assert _text(content, ext) == (
+        'section "A" {\n  MyRecord r1 { x = 1 y = 2 }\n} // end A'
+    ).replace("\n", eol)
+
+
 def test_section_extent_requires_close(tmp_path):
     content = 'package Types\nsection "A" {\n'
     structure = _parse_lenient(tmp_path, content)
@@ -221,6 +238,18 @@ def test_indent_step_from_file(tmp_path):
     )
     structure = _parse(tmp_path, content)
     assert indent_step(structure, content) == "  "
+
+
+def test_indent_step_with_comments_around_section_brace(tmp_path):
+    content = (
+        "package Types\n"
+        'section "A" /* title */ {\n'
+        "   // first child follows\n"
+        "   MyRecord r1 { x = 1 y = 2 }\n"
+        "}\n"
+    )
+    structure = _parse(tmp_path, content)
+    assert indent_step(structure, content) == "   "
 
 
 def test_indent_step_from_record_fields(tmp_path):
@@ -254,6 +283,16 @@ def test_shift_block_indent_and_dedent():
     )
     assert (
         shift_block(content, [], start, end, 0, "  ") == (content[start:end])
+    )
+
+
+def test_shift_block_dedent_counts_a_tab_as_one_step():
+    content = "\t\tx\n\t  y\n  \tz\n      w\n"
+    assert shift_block(content, [], 0, len(content), -1, "    ") == (
+        "\tx\n  y\n\tz\n  w\n"
+    )
+    assert shift_block(content, [], 0, len(content), -2, "    ") == (
+        "x\ny\n\tz\nw\n"
     )
 
 
