@@ -1,0 +1,93 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+"""Integration tests for the trlc/preview* custom requests."""
+
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=protected-access  # client Object namedtuple key ``_0``
+
+from .conftest import RSL_TEXT, TRLC_TEXT
+from .lsp_helpers import open_document, wait_for_diagnostics
+
+
+class TestPreview:
+    async def test_model_and_set_field(self, client, types_uri, sample_uri):
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, TRLC_TEXT)
+        await wait_for_diagnostics(client, sample_uri)
+
+        model = await client.protocol.send_request_async(
+            "trlc/previewModel", {"uri": sample_uri}
+        )
+        assert model.editable is True
+        node = model.nodes[0]
+        assert node.name == "example"
+        field = next(f for f in node.fields if f.name == "x")
+        assert field.value == "1"
+
+        result = await client.protocol.send_request_async(
+            "trlc/previewSetField",
+            {
+                "uri": sample_uri,
+                "record": "example",
+                "field": "x",
+                "value": "5",
+            },
+        )
+        # The client delivers JSON objects as namedtuples; a uri key (not a
+        # valid identifier) becomes ``_0``.
+        assert result.edit.changes._0[0].newText == "5"
+
+        added = await client.protocol.send_request_async(
+            "trlc/previewAddRecord",
+            {
+                "uri": sample_uri,
+                "sectionId": None,
+                "type": "MyRecord",
+                "name": "fresh",
+            },
+        )
+        assert hasattr(added, "edit"), added
+        assert added.edit.changes._0[0].newText.startswith("\nMyRecord fresh")
+
+    async def test_add_record_into_section_uses_camel_case_section_id(
+        self, client, types_uri, sample_uri
+    ):
+        text = 'package Types\n\nsection "S" {\n}\n'
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, text)
+        await wait_for_diagnostics(client, sample_uri)
+        model = await client.protocol.send_request_async(
+            "trlc/previewModel", {"uri": sample_uri}
+        )
+        section_id = model.nodes[0].sectionId
+
+        added = await client.protocol.send_request_async(
+            "trlc/previewAddRecord",
+            {
+                "uri": sample_uri,
+                "sectionId": section_id,
+                "type": "MyRecord",
+                "name": "inner",
+            },
+        )
+
+        edit = added.edit.changes._0[0]
+        # Inside the section: on the closing-brace line (3), not at file end (5).
+        assert edit.range.start.line == 3
