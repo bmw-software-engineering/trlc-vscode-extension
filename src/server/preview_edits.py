@@ -29,6 +29,7 @@ import re
 from typing import Optional
 
 from lsprotocol.types import Position, Range, TextEdit
+from trlc.ast import Implicit_Null
 from trlc.lexer import TRLC_Lexer
 
 from server.preview_scan import FieldSpan, FileStructure, RecordSpan
@@ -174,12 +175,25 @@ def set_field_edits(
 
     tokens = structure.tokens
     span = rec.fields.get(field)
+    current = rec.obj.field.get(field)
+    if (
+        span is None
+        and current is not None
+        and not isinstance(current, Implicit_Null)
+    ):
+        # Set somewhere we cannot locate: inserting would duplicate it.
+        raise PreviewEditError(
+            f"Cannot locate the assignment of '{field}'; "
+            "edit it in the text editor."
+        )
     if value is None:
         if span is None:
             return []
         return [_delete_assignment(content, tokens, span)]
 
     text = format_value(field_kind(comp.n_typ), value, comp.n_typ, cur_package)
+    # Multi-line string literals must use the file's line endings.
+    text = text.replace("\n", _eol(content))
     if span is not None:
         return [_replace_value(tokens, span, text)]
     return [

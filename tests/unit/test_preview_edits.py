@@ -19,7 +19,10 @@
 """Unit tests for server.preview_edits."""
 
 # pylint: disable=missing-function-docstring
+# The fixture deliberately mirrors the one in test_preview_scan.py.
+# pylint: disable=duplicate-code
 
+import dataclasses
 import io
 
 import pytest
@@ -28,7 +31,7 @@ from trlc.errors import Message_Handler
 from trlc.trlc import Source_Manager
 
 from server.preview_edits import add_record_edits, set_field_edits
-from server.preview_scan import scan_file
+from server.preview_scan import FileStructure, scan_file
 from server.preview_values import PreviewEditError
 
 RSL = """\
@@ -42,6 +45,10 @@ type MyRecord {
 
 type Frozen extends MyRecord {
     freeze y = 9
+}
+
+type Opt {
+    o optional Integer
 }
 """
 
@@ -169,9 +176,10 @@ def test_insert_into_inline_record(tmp_path):
     assert _reparse_ok(tmp_path, out)["r2"].field["text"].value == "t"
 
 
-def test_insert_into_record_without_fields(tmp_path):
-    src = TRLC.replace("MyRecord r3 { x = 5 y = 6 }", "Frozen r3 {\n}")
-    src = src.replace("Frozen r3 {\n}", "Frozen r3 {\n    x = 5\n}")
+def test_insert_into_multiline_record_at_file_level(tmp_path):
+    src = TRLC.replace(
+        "MyRecord r3 { x = 5 y = 6 }", "Frozen r3 {\n    x = 5\n}"
+    )
     out = _set(tmp_path, src, "r3", "text", "t")
     assert '    x = 5\n    text = "t"\n}' in out
     assert _reparse_ok(tmp_path, out)["r3"].field["text"].value == "t"
@@ -304,3 +312,66 @@ def test_remove_multiline_string_deletes_all_its_lines(tmp_path):
         "line1\nline2"
     )
     assert _set(tmp_path, out, "r1", "text", None) == TRLC
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ("{ }", "Opt e { \n    o = 5\n}\n"),
+        ("{}", "Opt e {\n    o = 5\n}\n"),
+        ("{\n}", "Opt e {\n    o = 5\n}\n"),
+    ],
+)
+def test_insert_into_empty_record(tmp_path, body, expected):
+    src = TRLC + f"Opt e {body}\n"
+    out = _set(tmp_path, src, "e", "o", "5")
+    assert out == TRLC + expected
+    assert _int(_reparse_ok(tmp_path, out)["e"], "o") == 5
+
+
+def test_comment_between_name_and_assign_is_replaced_in_place(tmp_path):
+    src = TRLC.replace("x = 1  // keep me", "x /*c*/ = 5")
+    out = _set(tmp_path, src, "r1", "x", "8")
+    assert out == src.replace("x /*c*/ = 5", "x /*c*/ = 8")
+    assert _int(_reparse_ok(tmp_path, out)["r1"], "x") == 8
+    src = TRLC.replace("y = 2\n", 'y = 2\n        text /*c*/ = "q"\n')
+    assert _set(tmp_path, src, "r1", "text", None) == TRLC
+
+
+def _without_span(structure: FileStructure, record, field):
+    rec = structure.record(record)
+    fields = {k: v for k, v in rec.fields.items() if k != field}
+    new_rec = dataclasses.replace(rec, fields=fields)
+    return dataclasses.replace(
+        structure,
+        records=[new_rec if r is rec else r for r in structure.records],
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value", [("x", "8"), ("text", "t"), ("text", None)]
+)
+def test_unlocatable_assignment_rejected(tmp_path, field, value):
+    src = TRLC.replace("y = 2\n", 'y = 2\n        text = "q"\n')
+    _, parsed = _parse(tmp_path, src)
+    structure = _without_span(scan_file(parsed.lexer.tokens), "r1", field)
+    with pytest.raises(PreviewEditError, match="Cannot locate"):
+        set_field_edits(
+            structure,
+            parsed.lexer.content,
+            parsed.cu.package,
+            "r1",
+            field,
+            value,
+        )
+
+
+def test_crlf_multiline_string(tmp_path):
+    src = TRLC.replace("\n", "\r\n")
+    out = _set(tmp_path, src, "r1", "text", "a\nb")
+    assert "\n" not in out.replace("\r\n", "")
+    assert _reparse_ok(tmp_path, out)["r1"].field["text"].value == "a\nb"
+    out = _set(tmp_path, out, "r1", "text", "c\r\nd")
+    assert "\n" not in out.replace("\r\n", "")
+    assert _reparse_ok(tmp_path, out)["r1"].field["text"].value == "c\nd"
+    assert _set(tmp_path, out, "r1", "text", None) == src

@@ -96,6 +96,14 @@ def _field_end(tokens: list, first: int, stop: int) -> int:
     return last
 
 
+def _next_non_comment(tokens: list, idx: int, stop: int) -> Optional[int]:
+    """Index of the first non-COMMENT token in ``[idx, stop)``, or None."""
+    for pos in range(idx, stop):
+        if tokens[pos].kind != "COMMENT":
+            return pos
+    return None
+
+
 def _match_brace(tokens: list, open_idx: int) -> Optional[int]:
     """Index of the ``}`` matching the ``{`` at *open_idx*, or None."""
     depth = 0
@@ -130,21 +138,27 @@ def _scan_record(tokens: list, start: int, section_id: Optional[int]):
     if close is None:
         return None
 
+    # (name token, assign token) per explicit assignment; comments may
+    # sit between the component name and its '='.
     starts = []
     for idx in range(start + 2, close - 1):
         tok = tokens[idx]
-        if (
-            tok.kind == "IDENTIFIER"
-            and isinstance(tok.ast_link, Composite_Component)
-            and tokens[idx + 1].kind == "ASSIGN"
-            and tokens[idx + 1].ast_link is tok.ast_link
+        if tok.kind != "IDENTIFIER" or not isinstance(
+            tok.ast_link, Composite_Component
         ):
-            starts.append(idx)
+            continue
+        assign = _next_non_comment(tokens, idx + 1, close)
+        if (
+            assign is not None
+            and tokens[assign].kind == "ASSIGN"
+            and tokens[assign].ast_link is tok.ast_link
+        ):
+            starts.append((idx, assign))
 
     fields = {}
-    for pos, name_idx in enumerate(starts):
-        stop = starts[pos + 1] if pos + 1 < len(starts) else close
-        first = name_idx + 2
+    for pos, (name_idx, assign) in enumerate(starts):
+        stop = starts[pos + 1][0] if pos + 1 < len(starts) else close
+        first = assign + 1
         name = tokens[name_idx].value
         fields[name] = FieldSpan(
             name, name_idx, first, _field_end(tokens, first, stop)

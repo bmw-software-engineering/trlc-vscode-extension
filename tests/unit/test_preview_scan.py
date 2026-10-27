@@ -116,3 +116,21 @@ def test_record_missing_required_component_is_kept(tmp_path):
     assert tokens[rec.close_tok].location.line_no == 2
     assert list(rec.fields) == ["a"]
     assert structure.record("r2") is not None
+
+
+def test_comment_between_field_name_and_assign(tmp_path):
+    rsl = "package P\ntype T {\n    a Integer\n    b Integer\n}\n"
+    src = "package P\nT r1 {\n    a /* c */ = 1\n    b // d\n    = 2\n}\n"
+    (tmp_path / "p.rsl").write_text(rsl, encoding="utf-8")
+    (tmp_path / "p.trlc").write_text(src, encoding="utf-8")
+    sm = Source_Manager(Message_Handler())
+    sm.register_file(str(tmp_path / "p.rsl"), rsl)
+    sm.register_file(str(tmp_path / "p.trlc"), src)
+    assert sm.process() is not None
+    tokens = sm.all_files[str(tmp_path / "p.trlc")].lexer.tokens
+    fields = scan_file(tokens).record("r1").fields
+    assert list(fields) == ["a", "b"]
+    for value, span in zip((1, 2), fields.values()):
+        assert tokens[span.name_tok].kind == "IDENTIFIER"
+        assert tokens[span.value_first].kind == "INTEGER"
+        assert tokens[span.value_last].value == value
