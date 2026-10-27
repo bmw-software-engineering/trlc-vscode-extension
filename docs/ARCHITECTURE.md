@@ -819,10 +819,19 @@ the server, independent of the grammar.
 **Preview edits.** The preview webview never writes files. For an edit, the
 server (`preview_edits.py`) computes a `WorkspaceEdit` from the last parsed
 AST (`preview_scan.py` locates source ranges, `preview_values.py` renders
-values) and returns it; the client (`previewController.ts`) applies it with
+values) and returns it as one `TextDocumentEdit` versioned with the buffer
+version the parse matched. `previewController.ts` sends one edit at a time
+(the next request waits until the previous edit was applied) and delegates
+applying to the `applyEdit` dependency injected by `previewPanel.ts`, which
+checks the version (the languageclient converter drops it) and calls
 `workspace.applyEdit`, so it behaves like a keyboard edit (undo, dirty
-state). The server refuses edits while the last parse is stale or failed; the
-preview then shows a banner, keeps the last good tree and disables inputs.
+state). The server refuses edits while the last parse is stale (error code
+`stale`: the controller resends the edit once after the next editable model)
+or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
+component ... is not defined" (TRLC recovers from syntax errors, so such
+files are still in `all_files`; `Vscode_Message_Handler` puts the TRLC kind in
+`Diagnostic.data`). Failing user checks do not lock the file. A locked file
+still shows its tree with a banner and disabled inputs.
 
 Key handler pattern:
 ```python

@@ -10,10 +10,11 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 - **TRLC preview** — New **TRLC: Open Preview to the Side** command (also an
   editor-title button on `.trlc` files) opens a live, editable view of the
-  active file: sections as headings, one editor per field, and **+ Record**
-  buttons to add records. Edits go through the normal editor undo stack. The
-  preview turns read-only while the file has parse errors or the parser is
-  catching up.
+  active file: sections as headings, one editor per field, and **+ Add
+  record** buttons to add records. Edits go through the normal editor undo
+  stack. The preview turns read-only while the file has syntax or type
+  errors or the parser is catching up; failing checks and missing required
+  values keep it editable.
 
 ---
 

@@ -103,7 +103,8 @@ wording).
 **TRLC: Open Preview to the Side** (command palette, or the preview button
 in the editor title bar of a `.trlc` file) opens a live view of the active
 `.trlc` file next to the editor. It follows the active `.trlc` editor and
-updates as you type.
+updates after each reparse of the file (shortly after you stop typing).
+Without a `.trlc` file it shows "Open a .trlc file to preview it."
 
 ### Reading
 
@@ -123,28 +124,41 @@ and can be undone with `Ctrl+Z`.
 | Integer, decimal, reference, other | Text input | `Enter`, or leaving the field |
 | Boolean, enumeration | Drop-down | Selecting a value |
 
-- Choosing the blank option on a set optional field removes it; the **x**
-  button next to an optional field does the same.
+- Choosing the blank option on a set optional field removes it; clearing
+  the text of a set optional field and the **x** button next to an
+  optional field do the same. Required fields cannot be removed.
+- Edits are applied one after another. An edit made while the parser is
+  still catching up with the previous one is sent again automatically once
+  the parse has finished.
 - Multi-line strings follow TRLC's triple-quote normalisation: leading and
   trailing whitespace and common indentation are not preserved.
 
 ### Adding records
 
-**+ Record** appears in every section and at file level. Pick a type and
-enter a name. Required components get placeholders: `0`, `0.0`, `false`,
-`""`, or the first enumeration literal. Required references are left out,
-so the new record shows a TRLC error until you fill them in.
+**+ Add record** appears in every section and at file level. Pick a type
+and enter a name; names that differ from an existing one only in case or
+underscores are rejected, as TRLC does. Required components get
+placeholders: `0`, `0.0`, `false`, `""`, or the first enumeration literal.
+Required references are left out, so the new record shows a TRLC error
+until you fill them in; that error does not make the preview read-only.
 
 ### Why the preview can turn read-only
 
-A banner replaces editing, the last good content stays visible and inputs
-are disabled, when:
+A banner appears, the content stays visible (the last good content while
+waiting for the parser) and inputs are disabled, when:
 
 | Banner | Meaning |
 |--------|---------|
 | File is not part of an active TRLC scope. | The file is outside the current parse scope. |
-| File has errors that prevent parsing; fix them in the editor. | The file could not be parsed; fix the syntax errors. |
+| File has errors that prevent parsing; fix them in the editor. | The file has a syntax or type error (for example `x = = 1`, an unclosed `section`, or a value of the wrong type). The records stay visible but cannot be edited until the error is fixed. |
 | Waiting for the parser to catch up with your last edit. | A short pause after typing; editing resumes automatically. |
+
+Failing `checks` (user errors and warnings) and records that miss a
+required value do **not** make the preview read-only, so you can fix them
+from the preview.
+
+Errors from a preview edit (for example an invalid integer) are shown as a
+banner above the content; the content stays visible.
 
 ## Commands
 
