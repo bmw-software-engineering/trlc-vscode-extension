@@ -29,9 +29,12 @@ from trlc.ast import (
     Enumeration_Type,
     Record_Type,
 )
+from trlc.errors import Message_Handler, TRLC_Error
+from trlc.lexer import TRLC_Lexer, triple_quoted_string_value
 
-_INTEGER = re.compile(r"^[+-]?\d[\d_]*$")
-_DECIMAL = re.compile(r"^[+-]?\d[\d_]*\.\d[\d_]*$")
+_INTEGER = re.compile(r"^[+-]?\d+(_\d+)*$")
+_DECIMAL = re.compile(r"^[+-]?\d+(_\d+)*\.\d+(_\d+)*$")
+_REFERENCE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$")
 
 
 class PreviewEditError(Exception):
@@ -63,18 +66,48 @@ def type_ref(entity, cur_package) -> str:
     return f"{entity.n_package.name}.{entity.name}"
 
 
+def _lexes_to(literal: str, expected: str) -> bool:
+    """True if literal lexes to exactly one STRING token == expected."""
+    # The newline avoids a TRLC lexer quirk at the very end of input.
+    lexer = TRLC_Lexer(Message_Handler(), "preview", literal + "\n")
+    try:
+        first = lexer.token()
+        second = lexer.token()
+    except TRLC_Error:
+        return False
+    return (
+        first is not None
+        and first.kind == "STRING"
+        and first.value == expected
+        and (second is None or second.kind == "EOF")
+    )
+
+
 def _format_string(raw: str) -> str:
+    """Render raw as a TRLC string literal.
+
+    Line endings are normalised to LF. Multi-line values are written as
+    triple-quoted strings and are therefore subject to TRLC's
+    triple-quote normalisation (outer whitespace stripped, common
+    indentation removed, trailing line whitespace removed). Every
+    candidate is re-lexed to guarantee the file stays valid.
+    """
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
     if "\n" not in raw and not raw.endswith("\\"):
-        return '"' + raw.replace('"', '\\"') + '"'
-    if "'''" not in raw:
-        return "'''" + raw + "'''"
-    if '"""' not in raw:
-        return '"""' + raw + '"""'
+        literal = '"' + raw.replace('"', '\\"') + '"'
+        if _lexes_to(literal, raw):
+            return literal
+    for quote in ("'''", '"""'):
+        if quote in raw:
+            continue
+        literal = quote + raw + quote
+        if _lexes_to(literal, triple_quoted_string_value(literal)):
+            return literal
     raise PreviewEditError("This text cannot be written as a TRLC string.")
 
 
 def _enum_literal(name: str, n_typ, cur_package) -> str:
-    if name not in [lit.name for lit in n_typ.literals.values()]:
+    if name not in [lit.name for lit in n_typ.literals.table.values()]:
         raise PreviewEditError(f"'{name}' is not a literal of {n_typ.name}.")
     return f"{type_ref(n_typ, cur_package)}.{name}"
 
@@ -100,11 +133,16 @@ def format_value(kind: str, raw: str, n_typ, cur_package) -> str:
         return _enum_literal(text, n_typ, cur_package)
     if not text:
         raise PreviewEditError("Value must not be empty.")
+    if kind == "reference" and not _REFERENCE.match(text):
+        raise PreviewEditError(f"'{text}' is not a valid reference.")
     return text
 
 
 def placeholder(kind: str, n_typ, cur_package) -> Optional[str]:
-    """Default TRLC text for a newly added field, or None to omit it."""
+    """Default TRLC text for a newly added field, or None to omit it.
+
+    For enums this is the first literal in declaration order.
+    """
     if kind == "integer":
         return "0"
     if kind == "decimal":

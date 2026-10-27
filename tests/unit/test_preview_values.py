@@ -29,7 +29,7 @@ from trlc.ast import (
     Builtin_String,
 )
 from trlc.errors import Message_Handler
-from trlc.lexer import TRLC_Lexer
+from trlc.lexer import TRLC_Lexer, triple_quoted_string_value
 from trlc.trlc import Source_Manager
 
 from server.preview_values import (
@@ -196,3 +196,54 @@ def test_visible_record_types_skips_abstract_and_qualifies_imports(cu):
     assert "MyRecord" in visible
     assert "Other.T" in visible
     assert "Base" not in visible
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a\nb\n",
+        "a\r\nb",
+        "a\n'",
+        "a\nb''",
+        'a\n"',
+        "a\n''' and \"",
+    ],
+)
+def test_format_string_multiline_edge_cases(value):
+    try:
+        text = format_value("string", value, None, None)
+    except PreviewEditError:
+        return
+    tokens = _lex(text + "\n")
+    assert len(tokens) == 1
+    assert tokens[0].kind == "STRING"
+    assert tokens[0].value == triple_quoted_string_value(text)
+    assert tokens[0].value == value.replace("\r\n", "\n").strip()
+
+
+def test_format_string_quote_endings_use_other_delimiter():
+    assert format_value("string", "a\n'", None, None).startswith('"""')
+    assert format_value("string", 'a\n"', None, None).startswith("'''")
+
+
+@pytest.mark.parametrize(
+    "value", ["1__0", "1_", "_1", "1_.5", "0x1F", "1.5e3", "1.5"]
+)
+def test_format_integer_rejects_malformed(value):
+    with pytest.raises(PreviewEditError):
+        format_value("integer", value, None, None)
+
+
+@pytest.mark.parametrize(
+    "value", ["1__0.5", "1_.5", "1.5_", "1._5", "1.5e3", "1"]
+)
+def test_format_decimal_rejects_malformed(value):
+    with pytest.raises(PreviewEditError):
+        format_value("decimal", value, None, None)
+
+
+def test_format_reference_validation():
+    assert format_value("reference", " Pkg.req_1 ", None, None) == "Pkg.req_1"
+    for bad in ["r1 }", "1abc", "a..b", "a b"]:
+        with pytest.raises(PreviewEditError):
+            format_value("reference", bad, None, None)
