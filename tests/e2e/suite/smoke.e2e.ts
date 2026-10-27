@@ -85,6 +85,33 @@ async function waitForDiagnostics(
     });
 }
 
+function tabLabels(): string[] {
+    return vscode.window.tabGroups.all.flatMap(group => group.tabs.map(tab => tab.label));
+}
+
+async function waitForTab(label: string, timeoutMs = 10000): Promise<void> {
+    if (tabLabels().includes(label)) {
+        return;
+    }
+
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            disposable.dispose();
+            reject(
+                new Error(`Timed out waiting for a tab labelled "${label}", got: ${JSON.stringify(tabLabels())}`)
+            );
+        }, timeoutMs);
+
+        const disposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+            if (tabLabels().includes(label)) {
+                clearTimeout(timer);
+                disposable.dispose();
+                resolve();
+            }
+        });
+    });
+}
+
 suite("TRLC extension e2e smoke", () => {
     const [workspaceFolder] = vscode.workspace.workspaceFolders ?? [];
     let scenarios: SmokeScenarios;
@@ -181,13 +208,8 @@ suite("TRLC extension e2e smoke", () => {
 
         await vscode.commands.executeCommand("extension.openTrlcPreview");
 
+        // The webview tab appears asynchronously after the command returns.
         const label = `Preview ${path.basename(sampleUri.fsPath)}`;
-        const labels = vscode.window.tabGroups.all.flatMap(group =>
-            group.tabs.map(tab => tab.label)
-        );
-        assert.ok(
-            labels.includes(label),
-            `Expected a tab labelled "${label}", got: ${JSON.stringify(labels)}`
-        );
+        await waitForTab(label);
     });
 });
