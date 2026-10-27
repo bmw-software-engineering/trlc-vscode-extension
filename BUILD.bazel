@@ -92,6 +92,17 @@ esbuild(
     ],
 )
 
+esbuild(
+    name = "preview_bundle",
+    srcs = glob(["src/client/src/*.ts"]),
+    entry_point = "src/client/src/previewWebview.ts",
+    format = "iife",
+    minify = True,
+    output = "src/client/out/preview.js",
+    platform = "browser",
+    visibility = ["//:__subpackages__"],
+)
+
 filegroup(
     name = "pyproject_toml",
     srcs = ["pyproject.toml"],
@@ -164,6 +175,7 @@ vsce_bin.vsce(
     name = "vsix",
     srcs = [
         ":extension_bundle",
+        ":preview_bundle",
         ":vsix_static_files",
         "//docs/assets",
         "//src/server:server_sources",

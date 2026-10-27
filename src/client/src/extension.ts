@@ -40,6 +40,7 @@ import {
 } from "vscode-languageclient/node";
 
 import { createLogger, Logger } from "./log";
+import { registerPreview } from "./previewPanel";
 import { ensureDependencies, registerResetCommand } from "./installer";
 import { buildServerEnv, resolveInterpreter } from "./serverEnv";
 import { ScopeStatus, TrlcStatusBarItem } from "./statusBar";
@@ -47,6 +48,8 @@ import { toScopeFileItems } from "./statusBarFormat";
 
 let client: LanguageClient;
 let statusBar: TrlcStatusBarItem;
+/** Registered after client.start(); callers must tolerate it being unset. */
+let preview: { refresh(): void; isPreviewing(uri: string): boolean } | undefined;
 
 /** Matches trlc-language-configuration.json's `languages[0].id`. */
 const TRLC_LANGUAGE_ID = "TRLC";
@@ -122,6 +125,7 @@ function getClientOptions(channel: LogOutputChannel): LanguageClientOptions {
                 } else {
                     statusBar.setParsing({ active: false });
                     void refreshScopeStatus(window.activeTextEditor);
+                    preview?.refresh();
                 }
             },
         },
@@ -215,6 +219,9 @@ function registerStatusBar(context: ExtensionContext, clickCommandId: string): v
 
     context.subscriptions.push(
         languages.onDidChangeDiagnostics((event) => {
+            if (event.uris.some((uri) => preview?.isPreviewing(uri.toString()))) {
+                preview?.refresh();
+            }
             const editor = window.activeTextEditor;
             if (!editor) {
                 return;
@@ -315,6 +322,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
         );
         throw error;
     }
+
+    preview = registerPreview(context, client);
 
     // Retries the request that registerStatusBar's initial call likely
     // skipped (client wasn't running yet at that point).

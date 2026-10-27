@@ -20,6 +20,7 @@
         "trlc-language-configuration.json",
         "docs/assets/BMW_White-Colour_RGB.png",
         "src/client/out/extension.js",
+        "src/client/out/preview.js",
         "src/server/**/*.py"
     ],
     "license": "GPL-3.0-or-later",
@@ -107,8 +108,22 @@
             {
                 "command": "extension.showTrlcFilesInScope",
                 "title": "TRLC: Show Files In Scope"
+            },
+            {
+                "command": "extension.openTrlcPreview",
+                "title": "TRLC: Open Preview to the Side",
+                "icon": "$(open-preview)"
             }
         ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "extension.openTrlcPreview",
+                    "when": "resourceExtname == .trlc",
+                    "group": "navigation"
+                }
+            ]
+        },
         "configuration": {
             "type": "object",
             "title": "trlc-vscode-extension server configuration",
