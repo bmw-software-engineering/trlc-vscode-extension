@@ -28,6 +28,10 @@
 export const PREVIEW_MODEL_METHOD = "trlc/previewModel";
 export const PREVIEW_SET_FIELD_METHOD = "trlc/previewSetField";
 export const PREVIEW_ADD_RECORD_METHOD = "trlc/previewAddRecord";
+export const PREVIEW_INSERT_SECTION_METHOD = "trlc/previewInsertSection";
+export const PREVIEW_RENAME_SECTION_METHOD = "trlc/previewRenameSection";
+export const PREVIEW_DISSOLVE_SECTION_METHOD = "trlc/previewDissolveSection";
+export const PREVIEW_MOVE_METHOD = "trlc/previewMove";
 /** `code` of an edit rejected because the server's parse is behind the buffer. */
 export const STALE_CODE = "stale";
 
@@ -43,6 +47,8 @@ export interface PreviewField {
     editable: boolean;
     /** Literal names; null unless kind is "enum". */
     enumValues: string[] | null;
+    /** true for a Markup_String field (edited with the Markdown editor). */
+    markdown: boolean;
 }
 
 export interface PreviewRecordNode {
@@ -63,6 +69,9 @@ export interface PreviewSectionNode {
     closed: boolean;
     children: PreviewNode[];
 }
+
+/** A movable item: a record by name or a section by id. */
+export type ItemRef = { kind: "record"; name: string } | { kind: "section"; sectionId: number };
 
 export type PreviewNode = PreviewRecordNode | PreviewSectionNode;
 
@@ -93,4 +102,8 @@ export type WebviewToHost =
     | { type: "ready" }
     | { type: "setField"; record: string; field: string; value: string | null }
     | { type: "addRecord"; sectionId: number | null; recordType: string; name: string }
+    | { type: "insertSection"; sectionId: number | null; title: string }
+    | { type: "renameSection"; sectionId: number; title: string }
+    | { type: "dissolveSection"; sectionId: number }
+    | { type: "move"; item: ItemRef; targetSectionId: number | null; before: ItemRef | null }
     | { type: "reveal"; line: number };

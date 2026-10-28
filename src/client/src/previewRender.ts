@@ -25,7 +25,7 @@
  * data-* attributes and class names emitted here.
  */
 
-import { PreviewField, PreviewModel, PreviewNode } from "./previewProtocol";
+import { PreviewField, PreviewModel, PreviewNode, PreviewSectionNode } from "./previewProtocol";
 
 export function escapeHtml(s: string): string {
     return s
@@ -47,6 +47,9 @@ function renderControl(f: PreviewField, locked: boolean): string {
         `data-field="${escapeHtml(f.name)}" data-kind="${escapeHtml(f.kind)}"` +
         `${f.optional ? ` data-optional="true"` : ""}${locked ? " disabled" : ""}`;
     const value = f.value ?? "";
+    if (f.kind === "string" && f.markdown) {
+        return `<div class="md-field" ${attrs} data-markdown="1" data-value="${escapeHtml(value)}"></div>`;
+    }
     if (f.kind === "string") {
         return `<textarea ${attrs} rows="2">${escapeHtml(value)}</textarea>`;
     }
@@ -67,37 +70,99 @@ function renderControl(f: PreviewField, locked: boolean): string {
 
 function renderField(f: PreviewField, modelLocked: boolean): string {
     const locked = modelLocked || !f.editable;
+    const required = f.optional ? "" : ' <span class="required">*</span>';
     const remove =
         f.optional && f.value !== null && !locked
             ? '<button class="remove" title="Remove value">&times;</button>'
             : "";
     return (
-        `<div class="field"><label>${escapeHtml(f.name)}</label>` + `${renderControl(f, locked)}${remove}</div>`
+        `<div class="field"><label>${escapeHtml(f.name)}${required}</label>` +
+        `${renderControl(f, locked)}${remove}</div>`
     );
 }
 
+function idAttr(sectionId: number | null): string {
+    return sectionId === null ? "" : String(sectionId);
+}
+
 function addRecordButton(sectionId: number | null, locked: boolean): string {
-    const id = sectionId === null ? "" : String(sectionId);
-    return `<button class="add-record" data-section-id="${id}"${locked ? " disabled" : ""}>+ Add record</button>`;
+    return `<button class="add-record" data-section-id="${idAttr(sectionId)}"${locked ? " disabled" : ""}>+ Add record</button>`;
+}
+
+function addSectionButton(sectionId: number | null, locked: boolean): string {
+    return `<button class="add-section" data-section-id="${idAttr(sectionId)}"${locked ? " disabled" : ""}>+ Section</button>`;
+}
+
+function dragHandle(kind: "record" | "section", id: string, locked: boolean): string {
+    const draggable = locked ? "" : ' draggable="true"';
+    return `<span class="drag-handle"${draggable} data-drag-kind="${kind}" data-drag-id="${escapeHtml(id)}">\u283f</span>`;
+}
+
+/** Drop target before `before` (null: at the end) inside section `target` (null: file level). */
+function dropZone(target: number | null, before: PreviewNode | null): string {
+    let kind = "";
+    let id = "";
+    if (before !== null) {
+        kind = before.kind;
+        id = before.kind === "section" ? String(before.sectionId) : before.name;
+    }
+    return (
+        `<div class="drop-zone" data-target-section-id="${idAttr(target)}" ` +
+        `data-before-kind="${kind}" data-before-id="${escapeHtml(id)}"></div>`
+    );
+}
+
+/** Children with a drop zone before each one. */
+function renderChildren(nodes: PreviewNode[], target: number | null, locked: boolean): string {
+    return nodes.map((n) => dropZone(target, n) + renderNode(n, locked)).join("");
+}
+
+function renderToc(nodes: PreviewNode[]): string {
+    const items = nodes
+        .filter((n): n is PreviewSectionNode => n.kind === "section")
+        .map(
+            (s) =>
+                `<li><a class="toc-link" data-section-id="${s.sectionId}">${escapeHtml(s.title)}</a>` +
+                `${renderToc(s.children)}</li>`
+        );
+    return items.length === 0 ? "" : `<ul>${items.join("")}</ul>`;
+}
+
+function renderMissing(fields: PreviewField[]): string {
+    return fields
+        .filter((f) => f.value === null && !f.optional)
+        .map((f) => `<div class="missing">Required field "${escapeHtml(f.name)}" is missing</div>`)
+        .join("");
 }
 
 function renderNode(node: PreviewNode, locked: boolean): string {
+    const dis = locked ? " disabled" : "";
     if (node.kind === "section") {
         const level = Math.min(Math.max(node.depth, 1), 6);
+        const sid = node.sectionId;
         return (
-            `<div class="section-block">` +
+            `<div class="section-block" id="section-${sid}" data-section-id="${sid}">` +
             `<h${level} class="section"><span class="hashes">${"#".repeat(node.depth)}</span> ` +
-            `${escapeHtml(node.title)}</h${level}>` +
-            node.children.map((c) => renderNode(c, locked)).join("") +
+            `${escapeHtml(node.title)}` +
+            ` ${dragHandle("section", String(sid), locked)}` +
+            `<button class="rename-section" data-section-id="${sid}"${dis}>\u270e</button>` +
+            `<button class="dissolve-section" data-section-id="${sid}" title="Dissolve section"${dis}>\ud83d\uddd1</button>` +
+            `</h${level}>` +
+            `<div class="section-body">` +
+            renderChildren(node.children, sid, locked) +
             // A section still open at EOF has no place to insert into.
-            (node.closed ? addRecordButton(node.sectionId, locked) : "") +
-            `</div>`
+            (node.closed
+                ? dropZone(sid, null) + addRecordButton(sid, locked) + addSectionButton(sid, locked)
+                : "") +
+            `</div></div>`
         );
     }
     return (
         `<div class="record" data-record="${escapeHtml(node.name)}">` +
-        `<div class="record-head"><a class="record-name" data-line="${node.line}">${escapeHtml(node.name)}</a>` +
+        `<div class="record-head">${dragHandle("record", node.name, locked)} ` +
+        `<a class="record-name" data-line="${node.line}">${escapeHtml(node.name)}</a>` +
         ` <span class="record-type">${escapeHtml(node.type)}</span></div>` +
+        renderMissing(node.fields) +
         node.fields.map((f) => renderField(f, locked)).join("") +
         `</div>`
     );
@@ -115,7 +180,15 @@ export function renderPreview(model: PreviewModel, last: LastNodes | null): stri
     const fallback = last !== null && last.uri === model.uri ? last.nodes : null;
     const nodes = model.nodes ?? fallback ?? [];
     const banner = locked ? `<div class="banner">${escapeHtml(model.reason ?? "")}</div>` : "";
-    return banner + nodes.map((n) => renderNode(n, locked)).join("") + addRecordButton(null, locked);
+    const toc = renderToc(nodes);
+    return (
+        (toc === "" ? "" : `<nav class="toc"><button class="toc-toggle">\u25be</button>${toc}</nav>`) +
+        banner +
+        renderChildren(nodes, null, locked) +
+        dropZone(null, null) +
+        addRecordButton(null, locked) +
+        addSectionButton(null, locked)
+    );
 }
 
 /** Banner for a request error; shown above the current tree. */
@@ -151,6 +224,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 button.remove { background: transparent; color: var(--vscode-foreground); }
 .error-banner { background: var(--vscode-inputValidation-errorBackground);
                 border-color: var(--vscode-inputValidation-errorBorder); }
+.toc { margin-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+.toc ul { margin: 2px 0; padding-left: 16px; list-style: none; }
+.toc.collapsed > ul { display: none; }
+.toc-link { cursor: pointer; color: var(--vscode-textLink-foreground); }
+.toc-toggle { background: transparent; color: var(--vscode-foreground); padding: 0 6px; }
+.section-body { margin-left: 12px; padding-left: 12px; border-left: 2px solid var(--vscode-panel-border); }
+.drag-handle { cursor: grab; color: var(--vscode-descriptionForeground); margin: 0 4px; user-select: none; }
+.drop-zone { height: 6px; }
+.drop-zone.active { height: 10px; background: var(--vscode-focusBorder); }
+.required { color: var(--vscode-errorForeground); }
+.missing { color: var(--vscode-errorForeground); margin: 2px 0; }
+.md-field { flex: 1; min-height: 2em; border: 1px solid var(--vscode-input-border, transparent);
+            background: var(--vscode-input-background); padding: 3px 6px; }
+button.rename-section, button.dissolve-section { background: transparent; color: var(--vscode-foreground); padding: 0 4px; }
 .placeholder { color: var(--vscode-descriptionForeground); }
 `;
 

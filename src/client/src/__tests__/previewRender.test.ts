@@ -38,6 +38,7 @@ function field(overrides: Partial<PreviewField> = {}): PreviewField {
         optional: false,
         editable: true,
         enumValues: null,
+        markdown: false,
         ...overrides,
     };
 }
@@ -161,7 +162,8 @@ describe("previewRender", () => {
 
     it("a section still open at EOF has no add-record button", () => {
         const html = renderPreview(model([section(1, "S", [], 3, false)]), null);
-        assert.ok(!html.includes('data-section-id="3"'));
+        assert.ok(!html.includes('class="add-record" data-section-id="3"'));
+        assert.ok(!html.includes('class="add-section" data-section-id="3"'));
         assert.ok(html.includes('<button class="add-record" data-section-id="">'));
     });
 
@@ -175,6 +177,102 @@ describe("previewRender", () => {
     it("error banner and no-document placeholder are escaped", () => {
         assert.strictEqual(renderErrorBanner("<x>"), '<div class="banner error-banner">&lt;x&gt;</div>');
         assert.ok(renderNoDocument().includes("Open a .trlc file to preview it."));
+    });
+
+    it("renders a TOC with nested links", () => {
+        const html = renderPreview(
+            model([section(1, "A<", [section(2, "B", [], 1)], 0), section(1, "C", [], 2)]),
+            null
+        );
+        assert.ok(html.startsWith('<nav class="toc"><button class="toc-toggle">'));
+        assert.ok(
+            html.includes(
+                '<li><a class="toc-link" data-section-id="0">A&lt;</a><ul><li><a class="toc-link" data-section-id="1">B</a></li></ul></li>'
+            )
+        );
+        assert.ok(html.includes('<li><a class="toc-link" data-section-id="2">C</a></li>'));
+        assert.ok(html.includes('id="section-1" data-section-id="1"'));
+        assert.ok(html.includes('<div class="section-body">'));
+    });
+
+    it("omits the TOC without sections", () => {
+        assert.ok(!renderPreview(model([record([field()])]), null).includes("toc"));
+    });
+
+    it("marks required fields with *", () => {
+        const html = renderPreview(
+            model([record([field({ optional: true, name: "o" }), field({ name: "r" })])]),
+            null
+        );
+        assert.ok(html.includes('<label>r <span class="required">*</span></label>'));
+        assert.ok(html.includes("<label>o</label>"));
+    });
+
+    it("shows a hint per missing required field", () => {
+        const html = renderPreview(
+            model([
+                record([
+                    field({ name: "a", value: null }),
+                    field({ name: "b", value: null, optional: true }),
+                    field({ name: "c<", value: null }),
+                ]),
+            ]),
+            null
+        );
+        assert.ok(html.includes('<div class="missing">Required field "a" is missing</div>'));
+        assert.ok(html.includes('Required field "c&lt;" is missing'));
+        assert.ok(!html.includes('Required field "b"'));
+        assert.strictEqual((html.match(/class="missing"/g) ?? []).length, 2);
+    });
+
+    it("emits drop zones before children and at section end", () => {
+        const html = renderPreview(
+            model([section(1, "S", [record([field()], "R<")], 5), record([field()], "R2")]),
+            null
+        );
+        assert.ok(
+            html.includes(
+                '<div class="drop-zone" data-target-section-id="" data-before-kind="section" data-before-id="5">'
+            )
+        );
+        assert.ok(html.includes('data-target-section-id="5" data-before-kind="record" data-before-id="R&lt;"'));
+        assert.ok(html.includes('data-target-section-id="5" data-before-kind="" data-before-id=""'));
+        assert.ok(html.includes('data-target-section-id="" data-before-kind="record" data-before-id="R2"'));
+        assert.ok(html.includes('data-target-section-id="" data-before-kind="" data-before-id=""'));
+        const open = renderPreview(model([section(1, "S", [], 6, false)]), null);
+        assert.ok(!open.includes('data-target-section-id="6"'));
+    });
+
+    it("emits drag handles only when editable", () => {
+        const nodes = [section(1, "S", [record([field()])], 2)];
+        const html = renderPreview(model(nodes), null);
+        assert.ok(html.includes('draggable="true" data-drag-kind="section" data-drag-id="2"'));
+        assert.ok(html.includes('draggable="true" data-drag-kind="record" data-drag-id="R1"'));
+        const locked = renderPreview(model(nodes, { editable: false, reason: "r" }), null);
+        assert.ok(locked.includes('data-drag-kind="record"'));
+        assert.ok(!locked.includes("draggable"));
+        assert.ok(!/<button(?![^>]*disabled)[^>]*>/.test(locked.replace(/<button class="toc-toggle">/g, "")));
+    });
+
+    it("renders markdown fields as md-field with escaped data-value", () => {
+        const html = renderPreview(
+            model([record([field({ kind: "string", markdown: true, optional: true, value: 'a "<b>"' })])]),
+            null
+        );
+        assert.ok(
+            html.includes(
+                '<div class="md-field" data-field="x" data-kind="string" data-optional="true" data-markdown="1" data-value="a &quot;&lt;b&gt;&quot;"></div>'
+            )
+        );
+        assert.ok(!html.includes("<textarea"));
+    });
+
+    it("emits add-section, rename and dissolve buttons", () => {
+        const html = renderPreview(model([section(1, "S", [], 4)]), null);
+        assert.ok(html.includes('<button class="add-section" data-section-id="4">+ Section</button>'));
+        assert.ok(html.includes('<button class="add-section" data-section-id="">+ Section</button>'));
+        assert.ok(html.includes('<button class="rename-section" data-section-id="4">'));
+        assert.ok(html.includes('<button class="dissolve-section" data-section-id="4" title="Dissolve section">'));
     });
 
     it("shell html carries CSP, root and script", () => {
