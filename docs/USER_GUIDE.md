@@ -95,6 +95,7 @@ wording).
 | `Trlc Server > Bazel: Use Shared Server` | `false` | If true, reuse the default Bazel server (faster but may interfere with your build). If false, use a dedicated output_base per workspace. |
 | `Trlc Server > Bazel: Query Timeout Seconds` | `180` | Timeout (seconds) for a single 'bazel query' call. The first query against a fresh/cold Bazel server (the default unless useSharedServer is true) can take much longer than a warm-server query, especially on large repos or slow filesystems. |
 | `Trlc Server > Hover: Description Component` | `description` | Component name whose string value is shown on hover when hovering a reference to a record object (e.g. the target of a derived_from entry). Set to an empty string to disable. Only affects object instances - hovering a type/tuple/enum name always shows its own TRLC RSL doc comment, independent of this setting. |
+| `Trlc Server > Preview: Markdown Components` | `["description"]` | String components rendered and edited as GitHub Flavored Markdown in the TRLC preview. |
 | `Trlc Server > Trace: Server` | `off` | Traces communication between VS Code and the TRLC language server. Set to 'verbose' and check the '[pygls] TrlcLanguageServer' Output channel to diagnose why a file isn't parsing as expected. |
 | `Trlc Server: Log Level` | `warning` | Sets the verbosity of TRLC's diagnostic logging (client and server), shown in the '[pygls] TrlcLanguageServer' output channel and written to a rotating log file. This is separate from Trlc Server > Trace: Server, which only traces the LSP wire protocol. |
 
@@ -112,6 +113,12 @@ Without a `.trlc` file it shows "Open a .trlc file to preview it."
   deeper levels keep showing all `#`).
 - Click a record's name to jump to it in the editor.
 - Frozen fields are shown read-only.
+- A table of contents at the top lists all sections, indented by nesting
+  depth. It stays visible while you scroll; the arrow button collapses it.
+  Click an entry to scroll to that section.
+- Required fields are marked with `*`. A required field without a value is
+  flagged with a "Required field ... is missing" hint.
+- Nested sections are indented.
 
 ### Editing
 
@@ -141,6 +148,49 @@ underscores are rejected, as TRLC does. Required components get
 placeholders: `0`, `0.0`, `false`, `""`, or the first enumeration literal.
 Required references are left out, so the new record shows a TRLC error
 until you fill them in; that error does not make the preview read-only.
+
+### Sections
+
+- **+ Section** (next to **+ Add record**, and at file level) appends an
+  empty section; enter a title and confirm with `Enter` (`Esc` cancels).
+- The pencil button next to a section heading renames it.
+- The bin button dissolves a section: its braces and heading are removed
+  and its content moves up one nesting level. Comments are kept.
+- A section that is still open at the end of the file cannot receive new
+  content until it is closed in the editor.
+
+### Moving records and sections
+
+Drag the handle (the six-dot grip) of a record or section and drop it on
+one of the drop zones between items, in any section or at file level. The
+item keeps its comments and is re-indented to its new level. A section
+cannot be dropped into itself. Drag and drop is mouse-only; there is no
+keyboard alternative. Dropping outside a drop zone, or pressing `Esc`,
+cancels the move.
+
+### Markdown fields
+
+String components named in `Trlc Server > Preview: Markdown Components`
+are shown as rendered GitHub Flavored Markdown instead of a text area.
+Click the field (or tab into it) to edit it in a WYSIWYG editor with a
+toolbar (bold, italic, strikethrough, heading, bullet and numbered list,
+inline code, code block, tables). The change is committed when focus
+leaves the field. Links are shown but never followed, and raw HTML is
+shown as text.
+
+- The text is stored in the file as an indented `'''...'''` block.
+- The editor may normalise the Markdown when saving, for example `-` list
+  markers become `*`.
+- Markdown that TRLC cannot store as a string is refused. The field then
+  shows "Not saved: ..." and keeps your text so you can fix it (for
+  example when every line after the first is indented).
+
+### Safety net for structural edits
+
+Adding, renaming, dissolving and moving sections and records is checked
+by the server before it is applied: the edit is refused if it would change
+the set of records or their values or leave unbalanced braces. A refused
+edit shows its message in the banner and leaves the file untouched.
 
 ### Why the preview can turn read-only
 

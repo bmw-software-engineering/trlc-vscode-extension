@@ -814,6 +814,10 @@ the server, independent of the grammar.
 | `trlc/previewModel` | `preview.py` | Custom request: section/record/field tree of a `.trlc` file for the preview |
 | `trlc/previewSetField` | `preview.py` | Custom request: returns a `WorkspaceEdit` that sets or removes one field |
 | `trlc/previewAddRecord` | `preview.py` | Custom request: returns a `WorkspaceEdit` that inserts a new record |
+| `trlc/previewInsertSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that appends an empty section |
+| `trlc/previewRenameSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that retitles a section |
+| `trlc/previewDissolveSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that removes a section's braces and keeps its content |
+| `trlc/previewMove` | `preview.py` | Custom request: returns a `WorkspaceEdit` that moves a record or section into a section or the file level |
 | `extension.parseAll` command | `lifecycle.py` | Forces full reparse of all contexts |
 
 **Preview edits.** The preview webview never writes files. For an edit, the
@@ -832,6 +836,22 @@ component ... is not defined" (TRLC recovers from syntax errors, so such
 files are still in `all_files`; `Vscode_Message_Handler` puts the TRLC kind in
 `Diagnostic.data`). Failing user checks do not lock the file. A locked file
 still shows its tree with a banner and disabled inputs.
+
+**Structure edits.** `preview_layout.py` locates the source extents of
+sections and records (including their comments) from the token stream.
+`preview_structure.py` builds on it to compute the text edits for insert,
+rename, dissolve and move; a move is one cut plus one paste, re-indented to
+the target level. Every such edit passes through `verify_structure_edit`, a
+runtime guard that re-lexes the old and new text and refuses the edit
+unless the braces stay balanced and the same records with the same
+assignments remain. The four requests share the stale and locked checks of
+the field edits. A rejected edit reaches the webview as `editRejected`
+(`previewController.ts`), which shows the message (Markdown fields show it
+as a "Not saved" note). Markdown values are written by `format_markdown`
+in `preview_values.py` as indented triple-quoted blocks, and refused when
+TRLC's dedent would alter the text. The webview side is `previewRender.ts`
+(HTML), `previewWebview.ts` (events, forms), `previewDnd.ts` (drag and
+drop) and `previewMarkdown.ts`/`previewMarkdownEditor.ts` (Milkdown).
 
 Key handler pattern:
 ```python

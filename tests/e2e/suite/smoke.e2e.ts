@@ -212,4 +212,11 @@ suite("TRLC extension e2e smoke", () => {
         const label = `Preview ${path.basename(sampleUri.fsPath)}`;
         await waitForTab(label);
     });
+
+    test("the Markdown components setting is contributed with its default", () => {
+        const value = vscode.workspace
+            .getConfiguration("trlcServer")
+            .get<string[]>("preview.markdownComponents");
+        assert.deepStrictEqual(value, ["description"]);
+    });
 });

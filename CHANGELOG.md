@@ -15,6 +15,16 @@ All notable changes to the TRLC VSCode Extension are documented here.
   stack. The preview turns read-only while the file has syntax or type
   errors or the parser is catching up; failing checks and missing required
   values keep it editable.
+- **Preview v2** — The preview gains a sticky, collapsible table of contents
+  (click an entry to scroll to it), required fields marked with `*` and a
+  hint for missing ones, and indented nested sections. Sections can be
+  added (**+ Section**), renamed (pencil button) and dissolved (bin button;
+  their content moves up one level). Records and sections can be moved by
+  drag and drop, with their comments. String components listed in the new
+  `trlcServer.preview.markdownComponents` setting (default `description`)
+  are rendered and edited as GitHub Flavored Markdown in a WYSIWYG editor.
+  Every structural edit is re-checked by the server and refused if it would
+  change records, values or brace balance.
 
 ---
 
