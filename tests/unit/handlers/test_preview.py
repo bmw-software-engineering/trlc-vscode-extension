@@ -23,6 +23,7 @@
 # pylint: disable=redefined-outer-name  # pytest fixture names must match
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -264,6 +265,168 @@ class TestPreviewLockRule:
         model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
         assert model["editable"] is True
         assert "edit" in set_fn(fake_ls, _set_o(uri))
+
+
+SECTIONED = (
+    'package Lock\nsection "A" {\nRec r { x = 1 y = 2 }\n}\nsection "B" {\n}\n'
+)
+
+
+def _call(fake_ls, method, **params):
+    preview_mod.register(fake_ls)
+    return fake_ls.get_handler(method)(fake_ls, SimpleNamespace(**params))
+
+
+def _edits(result):
+    assert "edit" in result, result
+    return result["edit"]["documentChanges"][0]["edits"]
+
+
+class TestPreviewStructure:
+    @pytest.fixture
+    def uri(self, fake_ls, tmp_path):
+        return _open_real(fake_ls, tmp_path, SECTIONED)[0]
+
+    def test_insert_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert 'section "New"' in _edits(result)[0]["newText"]
+
+    def test_rename_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            sectionId=0,
+            title="Z",
+        )
+        assert _edits(result)
+
+    def test_dissolve_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+        )
+        assert _edits(result)
+
+    def test_move_record(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=SimpleNamespace(kind="record", name="r"),
+            targetSectionId=1,
+            before=None,
+        )
+        assert _edits(result)
+
+    def test_move_section_with_before(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=SimpleNamespace(kind="section", sectionId=1),
+            targetSectionId=None,
+            before=SimpleNamespace(kind="section", sectionId=0),
+        )
+        assert _edits(result)
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            None,
+            SimpleNamespace(kind="bogus"),
+            SimpleNamespace(kind="record"),
+            SimpleNamespace(kind="record", name=3),
+            SimpleNamespace(kind="section", sectionId="1"),
+            SimpleNamespace(kind="section", sectionId=True),
+        ],
+    )
+    def test_malformed_item(self, fake_ls, uri, item):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=item,
+            targetSectionId=None,
+            before=None,
+        )
+        assert result == {"error": "Invalid request."}
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"sectionId": "0", "title": "x"},
+            {"sectionId": True, "title": "x"},
+            {"sectionId": 0, "title": 5},
+            {"sectionId": 0},
+        ],
+    )
+    def test_malformed_rename(self, fake_ls, uri, params):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            **params,
+        )
+        assert result == {"error": "Invalid request."}
+
+    def test_malformed_target_and_before(self, fake_ls, uri):
+        item = SimpleNamespace(kind="record", name="r")
+        for extra in (
+            {"targetSectionId": "1", "before": None},
+            {"targetSectionId": None, "before": "x"},
+        ):
+            assert _call(
+                fake_ls,
+                preview_mod.PREVIEW_MOVE_METHOD,
+                uri=uri,
+                item=item,
+                **extra,
+            ) == {"error": "Invalid request."}
+
+    def test_locked_file(self, fake_ls, tmp_path):
+        uri, _ = _open_real(
+            fake_ls, tmp_path, "package Lock\nRec bad {\n    x = = 1\n}\n"
+        )
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert result == {"error": NOT_PARSED}
+
+    def test_stale_buffer(self, fake_ls, uri):
+        # pylint: disable-next=protected-access
+        fake_ls._uri_contents[uri] += "\n"
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert result["code"] == "stale"
+
+    def test_edit_error_is_reported(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            sectionId=99,
+            title="x",
+        )
+        assert "error" in result
+        assert result["error"] != "Invalid request."
 
 
 def test_handler_model_uses_config_markdown_components(

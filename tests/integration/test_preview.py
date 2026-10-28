@@ -133,3 +133,33 @@ class TestPreview:
             "trlc/previewModel", {"uri": sample_uri}
         )
         assert model.editable is True
+
+
+class TestPreviewStructure:
+    async def test_insert_section(self, client, types_uri, sample_uri):
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, TRLC_TEXT)
+        await wait_for_diagnostics(client, sample_uri)
+        result = await client.protocol.send_request_async(
+            "trlc/previewInsertSection",
+            {"uri": sample_uri, "sectionId": None, "title": "New"},
+        )
+        edits = result.edit.documentChanges[0].edits
+        assert any('section "New"' in e.newText for e in edits)
+
+    async def test_move_with_malformed_item_is_rejected(
+        self, client, types_uri, sample_uri
+    ):
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, TRLC_TEXT)
+        await wait_for_diagnostics(client, sample_uri)
+        result = await client.protocol.send_request_async(
+            "trlc/previewMove",
+            {
+                "uri": sample_uri,
+                "item": {"kind": "bogus"},
+                "targetSectionId": None,
+                "before": None,
+            },
+        )
+        assert result.error == "Invalid request."
