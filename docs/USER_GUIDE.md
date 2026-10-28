@@ -174,23 +174,28 @@ String components named in `Trlc Server > Preview: Markdown Components`
 are shown as rendered GitHub Flavored Markdown instead of a text area.
 Click the field (or tab into it) to edit it in a WYSIWYG editor with a
 toolbar (bold, italic, strikethrough, heading, bullet and numbered list,
-inline code, code block, tables). The change is committed when focus
+inline code, code block, link, and tables with add/remove row and
+column). The change is committed when focus
 leaves the field. Links are shown but never followed, and raw HTML is
 shown as text.
 
 - The text is stored in the file as an indented `'''...'''` block.
 - The editor may normalise the Markdown when saving, for example `-` list
   markers become `*`.
-- Markdown that TRLC cannot store as a string is refused. The field then
-  shows "Not saved: ..." and keeps your text so you can fix it (for
-  example when every line after the first is indented).
+- Markdown that TRLC cannot store as a string is refused. TRLC strips and
+  dedents triple-quoted strings, so the text is refused when it would not
+  read back unchanged (for example a nested list where every line after
+  the first is indented deeper than the first), or when it contains both
+  `'''` and `"""`. The field then shows "Not saved: ..." and keeps your
+  text so you can fix it.
 
 ### Safety net for structural edits
 
 Adding, renaming, dissolving and moving sections and records is checked
 by the server before it is applied: the edit is refused if it would change
 the set of records or their values or leave unbalanced braces. A refused
-edit shows its message in the banner and leaves the file untouched.
+edit shows its message as an error notification (Markdown fields also
+show the "Not saved" note) and leaves the file untouched.
 
 ### Why the preview can turn read-only
 

@@ -15,7 +15,7 @@ All notable changes to the TRLC VSCode Extension are documented here.
   stack. The preview turns read-only while the file has syntax or type
   errors or the parser is catching up; failing checks and missing required
   values keep it editable.
-- **Preview v2** — The preview gains a sticky, collapsible table of contents
+- **Preview v2** â€” The preview gains a sticky, collapsible table of contents
   (click an entry to scroll to it), required fields marked with `*` and a
   hint for missing ones, and indented nested sections. Sections can be
   added (**+ Section**), renamed (pencil button) and dissolved (bin button;

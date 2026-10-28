@@ -846,8 +846,9 @@ runtime guard that re-lexes the old and new text and refuses the edit
 unless the braces stay balanced and the same records with the same
 assignments remain. The four requests share the stale and locked checks of
 the field edits. A rejected edit reaches the webview as `editRejected`
-(`previewController.ts`), which shows the message (Markdown fields show it
-as a "Not saved" note). Markdown values are written by `format_markdown`
+(`previewController.ts`); the controller shows the message through
+`window.showErrorMessage`, and `editRejected` additionally lets Markdown
+fields show an in-place "Not saved" note. Markdown values are written by `format_markdown`
 in `preview_values.py` as indented triple-quoted blocks, and refused when
 TRLC's dedent would alter the text. The webview side is `previewRender.ts`
 (HTML), `previewWebview.ts` (events, forms), `previewDnd.ts` (drag and
