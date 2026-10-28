@@ -96,6 +96,7 @@ export type EditResult = { edit: unknown } | { error: string; code?: string };
 export type HostToWebview =
     | { type: "model"; model: PreviewModel }
     | { type: "error"; message: string }
+    | { type: "editRejected"; record: string; field: string; value: string | null; message: string }
     | { type: "noDocument" };
 
 export type WebviewToHost =

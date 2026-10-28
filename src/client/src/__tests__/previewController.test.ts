@@ -84,6 +84,80 @@ describe("PreviewController", () => {
         sinon.assert.notCalled(deps.applyEdit);
     });
 
+    it("setField error posts editRejected before the refresh", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        deps.sendRequest.withArgs("trlc/previewSetField").resolves({ error: "bad" });
+        await ctl.setDocument(URI);
+        post.resetHistory();
+
+        await ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "keep me" });
+
+        const rejected: HostToWebview = { type: "editRejected", record: "R", field: "f", value: "keep me", message: "TRLC: bad" };
+        sinon.assert.calledWith(post, rejected);
+        sinon.assert.callOrder(post.withArgs(rejected), post.withArgs({ type: "model", model: MODEL }));
+    });
+
+    it("editRejected is not posted for a non-setField error or after a document switch", async () => {
+        const { deps, post, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        deps.sendRequest.withArgs("trlc/previewAddRecord").resolves({ error: "bad" });
+        await ctl.setDocument(URI);
+        await ctl.handleMessage({ type: "addRecord", sectionId: null, recordType: "T", name: "N" });
+        assert.ok(!post.getCalls().some((c) => c.args[0].type === "editRejected"));
+
+        let resolveSet: (v: unknown) => void = () => undefined;
+        deps.sendRequest.withArgs("trlc/previewSetField").returns(new Promise((r) => (resolveSet = r)));
+        const pending = ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "x" });
+        await ctl.setDocument("file:///b.trlc");
+        resolveSet({ error: "bad" });
+        await pending;
+        assert.ok(!post.getCalls().some((c) => c.args[0].type === "editRejected"));
+    });
+
+    const structure: Array<[WebviewToHost, string, object]> = [
+        [{ type: "insertSection", sectionId: null, title: "T" }, "trlc/previewInsertSection", { uri: URI, sectionId: null, title: "T" }],
+        [{ type: "renameSection", sectionId: 3, title: "N" }, "trlc/previewRenameSection", { uri: URI, sectionId: 3, title: "N" }],
+        [{ type: "dissolveSection", sectionId: 3 }, "trlc/previewDissolveSection", { uri: URI, sectionId: 3 }],
+        [
+            { type: "move", item: { kind: "record", name: "R" }, targetSectionId: null, before: { kind: "section", sectionId: 2 } },
+            "trlc/previewMove",
+            { uri: URI, item: { kind: "record", name: "R" }, targetSectionId: null, before: { kind: "section", sectionId: 2 } },
+        ],
+    ];
+    for (const [msg, method, params] of structure) {
+        it(`${msg.type} sends ${method}`, async () => {
+            const { deps, ctl } = setup();
+            deps.sendRequest.resolves(MODEL);
+            await ctl.setDocument(URI);
+            deps.sendRequest.resolves({ edit: { e: 1 } });
+
+            await ctl.handleMessage(msg);
+
+            sinon.assert.calledWithExactly(deps.sendRequest, method, params);
+            sinon.assert.calledWith(deps.applyEdit, { e: 1 });
+        });
+    }
+
+    it("move is queued behind a pending setField", async () => {
+        const { deps, ctl } = setup();
+        deps.sendRequest.withArgs("trlc/previewModel").resolves(MODEL);
+        await ctl.setDocument(URI);
+        let resolveSet: (v: unknown) => void = () => undefined;
+        deps.sendRequest.withArgs("trlc/previewSetField").returns(new Promise((r) => (resolveSet = r)));
+        const move = deps.sendRequest.withArgs("trlc/previewMove").resolves({ edit: {} });
+
+        const first = ctl.handleMessage({ type: "setField", record: "R", field: "f", value: "1" });
+        const second = ctl.handleMessage({ type: "move", item: { kind: "record", name: "R" }, targetSectionId: 1, before: null });
+        await new Promise((r) => setImmediate(r));
+        sinon.assert.notCalled(move);
+
+        resolveSet({ edit: {} });
+        await Promise.all([first, second]);
+        sinon.assert.calledOnce(move);
+        assert.ok(move.firstCall.calledAfter(deps.applyEdit.firstCall));
+    });
+
     it("addRecord maps recordType to type param", async () => {
         const { deps, ctl } = setup();
         deps.sendRequest.resolves(MODEL);

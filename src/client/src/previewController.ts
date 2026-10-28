@@ -23,7 +23,11 @@ import {
     EditResult,
     HostToWebview,
     PREVIEW_ADD_RECORD_METHOD,
+    PREVIEW_DISSOLVE_SECTION_METHOD,
+    PREVIEW_INSERT_SECTION_METHOD,
     PREVIEW_MODEL_METHOD,
+    PREVIEW_MOVE_METHOD,
+    PREVIEW_RENAME_SECTION_METHOD,
     PREVIEW_SET_FIELD_METHOD,
     PreviewModel,
     STALE_CODE,
@@ -131,12 +135,18 @@ export class PreviewController {
                 await this.refresh();
                 break;
             case "setField":
-                await this.edit(PREVIEW_SET_FIELD_METHOD, {
-                    uri,
-                    record: msg.record,
-                    field: msg.field,
-                    value: msg.value,
-                });
+                await this.edit(
+                    PREVIEW_SET_FIELD_METHOD,
+                    { uri, record: msg.record, field: msg.field, value: msg.value },
+                    (message) =>
+                        this.post({
+                            type: "editRejected",
+                            record: msg.record,
+                            field: msg.field,
+                            value: msg.value,
+                            message,
+                        }),
+                );
                 break;
             case "addRecord":
                 await this.edit(PREVIEW_ADD_RECORD_METHOD, {
@@ -146,21 +156,46 @@ export class PreviewController {
                     name: msg.name,
                 });
                 break;
+            case "insertSection":
+                await this.edit(PREVIEW_INSERT_SECTION_METHOD, { uri, sectionId: msg.sectionId, title: msg.title });
+                break;
+            case "renameSection":
+                await this.edit(PREVIEW_RENAME_SECTION_METHOD, { uri, sectionId: msg.sectionId, title: msg.title });
+                break;
+            case "dissolveSection":
+                await this.edit(PREVIEW_DISSOLVE_SECTION_METHOD, { uri, sectionId: msg.sectionId });
+                break;
+            case "move":
+                await this.edit(PREVIEW_MOVE_METHOD, {
+                    uri,
+                    item: msg.item,
+                    targetSectionId: msg.targetSectionId,
+                    before: msg.before,
+                });
+                break;
             case "reveal":
                 this.deps.reveal(uri, msg.line);
                 break;
         }
     }
 
-    /** Queues an edit behind any edit still in flight. */
-    private edit(method: string, params: object): Promise<void> {
+    /**
+     * Queues an edit behind any edit still in flight. `onRejected` is called
+     * with the message when the server refuses the edit (not when stale).
+     */
+    private edit(method: string, params: object, onRejected?: (message: string) => void): Promise<void> {
         const gen = this.docGen;
-        const run = this.editQueue.then(() => this.runEdit(gen, method, params));
+        const run = this.editQueue.then(() => this.runEdit(gen, method, params, onRejected));
         this.editQueue = run.catch(() => undefined);
         return run;
     }
 
-    private async runEdit(gen: number, method: string, params: object): Promise<void> {
+    private async runEdit(
+        gen: number,
+        method: string,
+        params: object,
+        onRejected?: (message: string) => void,
+    ): Promise<void> {
         const stale = (): boolean => gen !== this.docGen;
         if (stale()) {
             return;
@@ -188,6 +223,7 @@ export class PreviewController {
             }
             if ("error" in result) {
                 this.deps.showError("TRLC: " + result.error);
+                onRejected?.("TRLC: " + result.error);
                 await this.refresh();
                 return;
             }

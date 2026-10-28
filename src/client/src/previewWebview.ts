@@ -49,6 +49,10 @@ function render(msg: HostToWebview): void {
         root.insertAdjacentHTML("afterbegin", renderErrorBanner(msg.message));
         return;
     }
+    if (msg.type === "editRejected") {
+        // Handled by a later task (re-mount the editor with the rejected value).
+        return;
+    }
     if (msg.type === "noDocument") {
         currentModel = null;
         lastNodes = null;
