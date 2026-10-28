@@ -135,6 +135,7 @@ function makeToolbar(): HTMLElement {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "md-action";
+        b.tabIndex = -1; // mouse only (ProseMirror shortcuts cover the keyboard); keeps Shift+Tab leaving the field
         b.dataset.action = String(i);
         b.title = a.title;
         b.textContent = a.label;
@@ -143,6 +144,7 @@ function makeToolbar(): HTMLElement {
     const linkBtn = document.createElement("button");
     linkBtn.type = "button";
     linkBtn.className = "md-link";
+    linkBtn.tabIndex = -1;
     linkBtn.title = "Link (empty URL removes it)";
     linkBtn.textContent = "Link";
     const url = document.createElement("input");
@@ -158,15 +160,29 @@ function makeToolbar(): HTMLElement {
  * Mounts a Markdown editor into `el` (a `.md-field`). The element's
  * `data-value` is the initial Markdown unless `opts.initial` is given.
  */
-export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions): { destroy(): void } {
+export interface MarkdownFieldHandle {
+    destroy(): void;
+    /** Shows (message) or hides (null) the "Not saved" note in place. */
+    setNote(message: string | null): void;
+}
+
+export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions): MarkdownFieldHandle {
     const toolbar = makeToolbar();
     const note = document.createElement("div");
     note.className = "md-note";
-    note.hidden = opts.note === undefined;
-    note.textContent = opts.note === undefined ? "" : `Not saved: ${opts.note}`;
+    const setNote = (message: string | null): void => {
+        note.hidden = message === null;
+        note.textContent = message === null ? "" : `Not saved: ${message}`;
+    };
+    setNote(opts.note ?? null);
+    /** Removes every listener added to `el` (it outlives this mount on re-mount). */
+    const listeners = new AbortController();
+    const signal = listeners.signal;
     const host = document.createElement("div");
     host.className = "md-host";
     el.replaceChildren(note, toolbar, host);
+    el.classList.remove("editing");
+    el.removeAttribute("tabindex");
     if (opts.editable) {
         el.tabIndex = 0;
     }
@@ -182,6 +198,9 @@ export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions):
     function setEditing(on: boolean): void {
         editing = on;
         el.classList.toggle("editing", on);
+        // Out of the tab order while editing, so Shift+Tab from the editor
+        // leaves the field instead of landing on `el` (which refocuses it).
+        el.tabIndex = on ? -1 : 0;
         toolbar.hidden = !on;
         view()?.setProps({ editable: () => editing });
     }
@@ -223,29 +242,33 @@ export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions):
                 activate();
             }
         },
-        true
+        { capture: true, signal }
     );
     el.addEventListener("focusin", (e) => {
         if (e.target === el && opts.editable) {
             activate();
             view()?.focus();
         }
-    });
+    }, { signal });
     el.addEventListener("focusout", (e) => {
         const next = e.relatedTarget;
         if (!(next instanceof Node && el.contains(next))) {
             leave();
         }
-    });
-    // Links are never followed inside the webview.
+    }, { signal });
+    // Links are never followed, in display and edit mode: VS Code's webview
+    // host opens a link on any click that bubbles to the window (it ignores
+    // defaultPrevented), so the click must stop here. Bubble phase, so
+    // ProseMirror's own click handling on the editor still runs.
     el.addEventListener(
         "click",
         (e) => {
             if (e.target instanceof Element && e.target.closest("a")) {
                 e.preventDefault();
+                e.stopPropagation();
             }
         },
-        true
+        { signal }
     );
 
     // Toolbar buttons keep the focus in the editor.
@@ -312,8 +335,10 @@ export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions):
         });
 
     return {
+        setNote,
         destroy(): void {
             destroyed = true;
+            listeners.abort();
             if (editor !== null) {
                 void editor.destroy();
                 editor = null;

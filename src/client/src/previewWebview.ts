@@ -29,7 +29,7 @@ import { canDrop, isNoOpMove } from "./previewDnd";
 import { HostToWebview, ItemRef, PreviewField, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
 import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "./previewFocus";
 import { MarkdownRejection, markdownCommitValue, rejectionApplies } from "./previewMarkdown";
-import { mountMarkdownField } from "./previewMarkdownEditor";
+import { MarkdownFieldHandle, mountMarkdownField } from "./previewMarkdownEditor";
 import { escapeHtml, LastNodes, renderErrorBanner, renderNoDocument, renderPreview } from "./previewRender";
 
 declare function acquireVsCodeApi(): { postMessage(msg: WebviewToHost): void };
@@ -47,7 +47,7 @@ let dragItem: ItemRef | null = null;
 /** Mouse is down on a drag handle: hold renders so the handle is not detached before dragstart. */
 let pressing = false;
 /** Mounted Markdown editors of the current DOM; destroyed before it is replaced. */
-const mdMounts = new Map<HTMLElement, { destroy(): void }>();
+const mdMounts = new Map<HTMLElement, MarkdownFieldHandle>();
 /** A Markdown edit the server refused: its text stays in the editor until committed again. */
 let rejection: (MarkdownRejection & { value: string; message: string }) | null = null;
 
@@ -165,7 +165,13 @@ function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }
     const el = Array.from(mdMounts.keys()).find(
         (e) => e.isConnected && recordOf(e) === msg.record && e.dataset.field === msg.field
     );
-    if (el && !el.classList.contains("editing")) {
+    if (el === undefined) {
+        return;
+    }
+    if (el.classList.contains("editing")) {
+        // Being edited again: keep the editor, just show why the last commit failed.
+        mdMounts.get(el)?.setNote(msg.message);
+    } else {
         mountMarkdown(el);
     }
 }
@@ -178,8 +184,7 @@ function render(msg: HostToWebview): void {
         return;
     }
     if (msg.type === "editRejected") {
-        handleEditRejected(msg);
-        return;
+        return; // never queued: handled on arrival by handleEditRejected
     }
     destroyMarkdownFields();
     if (msg.type === "noDocument") {
