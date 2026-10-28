@@ -37,7 +37,10 @@ export const STALE_CODE = "stale";
 /** `code` of an id-based edit made from an older model than the server's parse. */
 export const OUTDATED_CODE = "outdated";
 
-export type PreviewFieldKind = "string" | "integer" | "decimal" | "boolean" | "enum" | "reference" | "other";
+export type PreviewFieldKind = "string" | "integer" | "decimal" | "boolean" | "enum" | "reference" | "array" | "other";
+
+/** Value of a field edit: a list of element inputs for "array" fields; null unsets. */
+export type FieldValue = string | string[] | null;
 
 export interface PreviewField {
     name: string;
@@ -47,8 +50,12 @@ export interface PreviewField {
     optional: boolean;
     /** false for frozen components. */
     editable: boolean;
-    /** Literal names; null unless kind is "enum". */
+    /** Literal names; null unless kind (or elementKind) is "enum". */
     enumValues: string[] | null;
+    /** Kind of the elements of an "array" field; null for other kinds. */
+    elementKind: PreviewFieldKind | null;
+    /** Elements of a set "array" field (string: unescaped, enum: literal name); null otherwise. */
+    items: string[] | null;
     /** true for a string field edited as Markdown (configured via trlcServer.preview.markdownComponents). */
     markdown: boolean;
 }
@@ -110,7 +117,7 @@ export type HostToWebview =
           type: "editRejected";
           record: string;
           field: string;
-          value: string | null;
+          value: FieldValue;
           message: string;
           /** The parser was busy: committing the same value again may succeed. */
           retry?: boolean;
@@ -129,7 +136,7 @@ export interface ModelRef {
 /** Every edit message names the document (`uri`) of the model it was made from. */
 export type WebviewToHost =
     | { type: "ready" }
-    | { type: "setField"; uri: string; record: string; field: string; value: string | null }
+    | { type: "setField"; uri: string; record: string; field: string; value: FieldValue }
     | ({ type: "addRecord"; sectionId: number | null; recordType: string; name: string } & ModelRef)
     | ({ type: "insertSection"; sectionId: number | null; title: string } & ModelRef)
     | ({ type: "renameSection"; sectionId: number; title: string } & ModelRef)

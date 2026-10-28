@@ -42,11 +42,47 @@ function option(value: string, current: string | null): string {
     return `<option value="${v}"${sel}>${v}</option>`;
 }
 
+/**
+ * One element row of a list field. `added` marks a row created in the
+ * preview (an added row left empty is not committed).
+ */
+export function renderArrayRow(
+    f: Pick<PreviewField, "elementKind" | "enumValues">,
+    value: string,
+    locked: boolean,
+    added: boolean
+): string {
+    const dis = locked ? " disabled" : "";
+    let control: string;
+    if (f.elementKind === "boolean" || f.elementKind === "enum") {
+        const values = f.elementKind === "boolean" ? ["true", "false"] : (f.enumValues ?? []);
+        const blank = value === "" ? '<option value="" selected></option>' : "";
+        control = `<select class="array-value"${dis}>${blank}${values.map((v) => option(v, value)).join("")}</select>`;
+    } else {
+        control = `<input type="text" class="array-value" value="${escapeHtml(value)}"${dis}>`;
+    }
+    const remove = locked ? "" : '<button class="array-remove" title="Remove element">&times;</button>';
+    return `<div class="array-item"${added ? ' data-added="1"' : ""}>${control}${remove}</div>`;
+}
+
+function renderArray(f: PreviewField, attrs: string, locked: boolean): string {
+    const rows = (f.items ?? []).map((v) => renderArrayRow(f, v, locked, false)).join("");
+    const add = locked ? "" : '<button class="array-add" title="Add element">+</button>';
+    return `<div class="array-field" ${attrs}>${rows}${add}</div>`;
+}
+
 function renderControl(f: PreviewField, locked: boolean): string {
     const attrs =
         `data-field="${escapeHtml(f.name)}" data-kind="${escapeHtml(f.kind)}"` +
         `${f.optional ? ` data-optional="true"` : ""}${locked ? " disabled" : ""}`;
     const value = f.value ?? "";
+    if (f.kind === "array" && (f.items !== null || f.value === null)) {
+        return renderArray(f, attrs, locked);
+    }
+    if (f.kind === "array") {
+        // A list the server could not split into elements: shown, not editable.
+        return `<input type="text" ${attrs} value="${escapeHtml(value)}" disabled>`;
+    }
     if (f.kind === "string" && f.markdown) {
         return `<div class="md-field" ${attrs} data-markdown="1" data-value="${escapeHtml(value)}"></div>`;
     }
@@ -250,7 +286,13 @@ button.remove { background: transparent; color: var(--vscode-foreground); }
     background: var(--vscode-textCodeBlock-background); }
 .md-field pre { padding: 4px 8px; }
 .md-field table { border-collapse: collapse; margin: 4px 0; }
-.md-field th, .md-field td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; }
+.md-field th, .md-field td { border: 1px solid color-mix(in srgb, var(--vscode-foreground) 45%, transparent);
+    padding: 2px 6px; }
+.md-field th { background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent); }
+.array-field { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.array-item { display: flex; gap: 4px; }
+button.array-remove { background: transparent; color: var(--vscode-foreground); }
+button.array-add { align-self: flex-start; padding: 0 8px; }
 .md-field .selectedCell { background: var(--vscode-editor-selectionBackground); }
 .md-toolbar { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 4px; }
 .md-toolbar button { padding: 1px 6px; color: var(--vscode-button-secondaryForeground);

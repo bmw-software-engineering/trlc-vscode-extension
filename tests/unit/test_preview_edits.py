@@ -51,6 +51,14 @@ type Frozen extends MyRecord {
 type Opt {
     o optional Integer
 }
+
+enum Color { Red Green }
+
+type Tagged {
+    tags optional String [0 .. *]
+    nums Integer [1 .. 2]
+    colors optional Color [0 .. *]
+}
 """
 
 TRLC = """\
@@ -440,3 +448,54 @@ def test_set_markdown_field_crlf(tmp_path):
 def test_set_markdown_field_unrepresentable_rejected(tmp_path):
     with pytest.raises(PreviewEditError):
         _set(tmp_path, TRLC, "r1", "text", "- a\n  - b", ("text",))
+
+
+TAGGED = TRLC + "Tagged t { nums = [1] }\n"
+
+
+def test_set_array_inserts_brackets_and_quotes(tmp_path):
+    out = _set(tmp_path, TAGGED, "t", "tags", ["a", 'b "c"'])
+    assert 'tags = ["a", "b \\"c\\""]' in out
+    objs = _reparse_ok(tmp_path, out)
+    assert [e.value for e in objs["t"].field["tags"].value] == ["a", 'b "c"']
+
+
+def test_replace_array_value(tmp_path):
+    out = _set(tmp_path, TAGGED, "t", "nums", ["4", "5"])
+    assert out == TAGGED.replace("[1]", "[4, 5]")
+    objs = _reparse_ok(tmp_path, out)
+    assert [e.value for e in objs["t"].field["nums"].value] == [4, 5]
+
+
+def test_set_enum_array(tmp_path):
+    out = _set(tmp_path, TAGGED, "t", "colors", ["Green", "Red"])
+    assert "colors = [Color.Green, Color.Red]" in out
+    _reparse_ok(tmp_path, out)
+
+
+def test_empty_optional_array(tmp_path):
+    out = _set(tmp_path, TAGGED, "t", "tags", [])
+    assert "tags = []" in out
+    _reparse_ok(tmp_path, out)
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("nums", [], "at least 1"),
+        ("nums", ["1", "2", "3"], "at most 2"),
+        ("nums", ["x"], "not a valid integer"),
+        ("nums", "1", "list"),
+        ("x", ["1"], "single value"),
+    ],
+)
+def test_invalid_array_edits_rejected(tmp_path, field, value, message):
+    record = "r3" if field == "x" else "t"
+    with pytest.raises(PreviewEditError, match=message):
+        _set(tmp_path, TAGGED, record, field, value)
+
+
+def test_new_record_leaves_out_array_that_needs_elements(tmp_path):
+    out = _add(tmp_path, TRLC, None, "Tagged", "t2")
+    # 'nums' needs an element: left out, so TRLC reports it as missing.
+    assert out == TRLC + "\nTagged t2 {\n}\n"

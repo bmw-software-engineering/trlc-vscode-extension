@@ -27,8 +27,9 @@ from trlc.ast import (
     String_Literal,
 )
 
-from server.preview_scan import FileStructure, RecordSpan, scan_file
+from server.preview_scan import FieldSpan, FileStructure, RecordSpan, scan_file
 from server.preview_values import (
+    element_type,
     field_kind,
     type_ref,
     visible_record_types,
@@ -69,27 +70,76 @@ def _field_value(parsed, structure, rec: RecordSpan, comp, expr):
     return _source_text(parsed, structure, span)
 
 
+def _element_text(content: str, toks: list, elem_kind: str) -> str:
+    if elem_kind == "string" and len(toks) == 1:
+        return toks[0].value
+    if elem_kind == "enum":
+        return toks[-1].value  # [Pkg.]Type.Literal
+    start = toks[0].location.start_pos
+    return content[start : toks[-1].location.end_pos + 1]
+
+
+def _array_items(
+    parsed, structure, span: FieldSpan, elem_kind: str
+) -> Optional[list]:
+    """Display texts of the elements of an array literal (None if odd)."""
+    tokens = structure.tokens
+    first, last = span.value_first, span.value_last
+    while first < last and tokens[first].kind == "COMMENT":
+        first += 1
+    while last > first and tokens[last].kind == "COMMENT":
+        last -= 1
+    if tokens[first].kind != "S_BRA" or tokens[last].kind != "S_KET":
+        return None
+    elements = [[]]
+    for tok in tokens[first + 1 : last]:
+        if tok.kind == "COMMA":
+            elements.append([])
+        elif tok.kind != "COMMENT":
+            elements[-1].append(tok)
+    content = parsed.lexer.content
+    return [
+        _element_text(content, toks, elem_kind) for toks in elements if toks
+    ]
+
+
+def _kind_extras(kind: str, n_typ) -> dict:
+    """``enumValues`` and ``elementKind`` of a field of type *n_typ*."""
+    elem_kind = None
+    if kind == "array":
+        n_typ = element_type(n_typ)
+        elem_kind = field_kind(n_typ)
+    enum_values = None
+    if (elem_kind or kind) == "enum":
+        enum_values = [lit.name for lit in n_typ.literals.table.values()]
+    return {"enumValues": enum_values, "elementKind": elem_kind}
+
+
 def _fields(parsed, structure, rec: RecordSpan, markdown) -> list:
     obj = rec.obj
     fields = []
     for comp in obj.n_typ.all_components():
         kind = field_kind(comp.n_typ)
-        enum_values = None
-        if kind == "enum":
-            enum_values = [
-                lit.name for lit in comp.n_typ.literals.table.values()
-            ]
+        extras = _kind_extras(kind, comp.n_typ)
+        value = _field_value(
+            parsed, structure, rec, comp, obj.field.get(comp.name)
+        )
+        span = rec.fields.get(comp.name)
+        items = None
+        if kind == "array" and value is not None and span is not None:
+            items = _array_items(
+                parsed, structure, span, extras["elementKind"]
+            )
         fields.append(
             {
                 "name": comp.name,
                 "kind": kind,
-                "value": _field_value(
-                    parsed, structure, rec, comp, obj.field.get(comp.name)
-                ),
+                "value": value,
+                "items": items,
                 "optional": bool(comp.optional),
                 "editable": not obj.n_typ.is_frozen(comp),
-                "enumValues": enum_values,
                 "markdown": kind == "string" and comp.name in markdown,
+                **extras,
             }
         )
     return fields

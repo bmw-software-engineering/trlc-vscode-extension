@@ -22,19 +22,22 @@
 
 import pytest
 from trlc.ast import (
+    Array_Type,
     Builtin_Boolean,
     Builtin_Decimal,
     Builtin_Integer,
     Builtin_Markup_String,
     Builtin_String,
 )
-from trlc.errors import Message_Handler
+from trlc.errors import Location, Message_Handler
 from trlc.lexer import TRLC_Lexer, triple_quoted_string_value
 from trlc.trlc import Source_Manager
 
 from server.preview_values import (
     PreviewEditError,
+    element_type,
     field_kind,
+    format_array,
     format_markdown,
     format_value,
     placeholder,
@@ -62,6 +65,8 @@ type MyRecord {
     r optional MyRecord
     arr optional Integer [0 .. 3]
     p optional Pair
+    pairs optional Pair [0 .. *]
+    colors optional Color [1 .. *]
 }
 """
 
@@ -105,8 +110,52 @@ def test_field_kind_maps_builtins(cu):
     assert field_kind(Builtin_Boolean()) == "boolean"
     assert field_kind(_lookup(cu, "Color")) == "enum"
     assert field_kind(rec) == "reference"
-    assert field_kind(rec.components.table["arr"].n_typ) == "other"
+    assert field_kind(rec.components.table["arr"].n_typ) == "array"
+    assert field_kind(rec.components.table["colors"].n_typ) == "array"
     assert field_kind(_lookup(cu, "Pair")) == "other"
+    # Lists of tuples have no element editor: edited as raw text.
+    assert field_kind(rec.components.table["pairs"].n_typ) == "other"
+
+
+def test_element_type(cu):
+    comps = _lookup(cu, "MyRecord").components.table
+    assert element_type(comps["colors"].n_typ) is _lookup(cu, "Color")
+    assert element_type(comps["s"].n_typ) is None
+
+
+def test_format_array(cu):
+    comps, pkg = _lookup(cu, "MyRecord").components.table, cu.package
+    arr, colors = comps["arr"].n_typ, comps["colors"].n_typ
+    assert format_array([], arr, pkg) == "[]"
+    assert format_array(["1", " 0x2 "], arr, pkg) == "[1, 0x2]"
+    assert format_array(["Red", "Green"], colors, pkg) == (
+        "[Color.Red, Color.Green]"
+    )
+    other = _other_package(cu)
+    assert format_array(["Red"], colors, other) == "[Types.Color.Red]"
+
+
+def test_format_array_of_strings_quotes_each_element():
+    loc = Location("x")
+    typ = Array_Type(loc, Builtin_String(), loc, 0, loc, None)
+    assert format_array(['a "b"', "", "c,d"], typ, None) == (
+        '["a \\"b\\"", "", "c,d"]'
+    )
+
+
+def test_format_array_rejects_bad_elements_and_bounds(cu):
+    comps, pkg = _lookup(cu, "MyRecord").components.table, cu.package
+    arr, colors = comps["arr"].n_typ, comps["colors"].n_typ
+    with pytest.raises(PreviewEditError, match="not a valid integer"):
+        format_array(["1", "x"], arr, pkg)
+    with pytest.raises(PreviewEditError, match="at most 3"):
+        format_array(["1", "2", "3", "4"], arr, pkg)
+    with pytest.raises(PreviewEditError, match="at least 1"):
+        format_array([], colors, pkg)
+    with pytest.raises(PreviewEditError, match="list"):
+        format_array("1", arr, pkg)
+    with pytest.raises(PreviewEditError, match="list"):
+        format_array([1], arr, pkg)
 
 
 def _lex(text):
@@ -184,6 +233,10 @@ def test_placeholders(cu):
     assert placeholder("enum", color, _other_package(cu)) == "Types.Color.Red"
     assert placeholder("reference", None, pkg) is None
     assert placeholder("other", None, pkg) is None
+    comps = _lookup(cu, "MyRecord").components.table
+    assert placeholder("array", comps["arr"].n_typ, pkg) == "[]"
+    # A list that needs elements has no neutral default.
+    assert placeholder("array", comps["colors"].n_typ, pkg) is None
 
 
 def test_type_ref(cu):

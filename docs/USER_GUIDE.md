@@ -132,6 +132,7 @@ and can be undone with `Ctrl+Z`.
 | String | Multi-line text area | `Ctrl+Enter`, or leaving the field |
 | Integer, decimal, reference, other | Text input | `Enter`, or leaving the field |
 | Boolean, enumeration | Drop-down | Selecting a value |
+| List (array) of the kinds above | One input or drop-down per element, **+** adds one, **x** removes one | Committing an element, or removing one |
 
 - Choosing the blank option on a set optional field removes it; clearing
   the text of a set optional field and the **x** button next to an
@@ -143,6 +144,10 @@ and can be undone with `Ctrl+Z`.
   saves it when you leave the field again.
 - A field edit always goes to the file it was made in, even if the preview
   has meanwhile followed another editor.
+- In a list, the preview writes the brackets, quotes string elements and
+  checks every element and the number of elements against the type (for
+  example `[1 .. 3]`). An element added with **+** and left empty is
+  dropped. Lists of tuples and nested lists are edited as raw text.
 - Multi-line strings follow TRLC's triple-quote normalisation: leading and
   trailing whitespace and common indentation are not preserved.
 
@@ -151,8 +156,9 @@ and can be undone with `Ctrl+Z`.
 **+ Add record** appears in every section and at file level. Pick a type
 and enter a name; names that differ from an existing one only in case or
 underscores are rejected, as TRLC does. Required components get
-placeholders: `0`, `0.0`, `false`, `""`, or the first enumeration literal.
-Required references are left out, so the new record shows a TRLC error
+placeholders: `0`, `0.0`, `false`, `""`, `[]`, or the first enumeration
+literal. Required references and lists that need at least one element are
+left out, so the new record shows a TRLC error
 until you fill them in; that error does not make the preview read-only.
 
 ### Sections

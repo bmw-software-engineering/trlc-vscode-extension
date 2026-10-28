@@ -27,6 +27,7 @@ import {
     previewShellHtml,
     renderErrorBanner,
     renderNoDocument,
+    renderArrayRow,
     renderPreview,
 } from "../previewRender";
 
@@ -38,6 +39,8 @@ function field(overrides: Partial<PreviewField> = {}): PreviewField {
         optional: false,
         editable: true,
         enumValues: null,
+        elementKind: null,
+        items: null,
         markdown: false,
         ...overrides,
     };
@@ -110,6 +113,51 @@ describe("previewRender", () => {
         assert.ok(html.includes("<select"));
         assert.ok(html.includes('<option value="B" selected>B</option>'));
         assert.ok(html.includes('<option value="A">A</option>'));
+    });
+
+    it("array field renders one control per element and an add button", () => {
+        const html = renderPreview(
+            model([
+                record([
+                    field({ name: "tags", kind: "array", elementKind: "string", value: '["a", "<b>"]', items: ["a", "<b>"] }),
+                ]),
+            ]),
+            null
+        );
+        assert.ok(html.includes('<div class="array-field" data-field="tags" data-kind="array">'));
+        assert.ok(html.includes('class="array-value" value="a"'));
+        assert.ok(html.includes('class="array-value" value="&lt;b&gt;"'));
+        assert.strictEqual(html.split('class="array-remove"').length - 1, 2);
+        assert.ok(html.includes('class="array-add"'));
+    });
+
+    it("array of enums renders a select per element", () => {
+        const html = renderArrayRow({ elementKind: "enum", enumValues: ["A", "B"] }, "B", false, false);
+        assert.ok(html.includes('<select class="array-value">'));
+        assert.ok(html.includes('<option value="B" selected>B</option>'));
+        const added = renderArrayRow({ elementKind: "boolean", enumValues: null }, "", false, true);
+        assert.ok(added.includes('data-added="1"'));
+        assert.ok(added.includes('<option value="" selected></option>'));
+        assert.ok(added.includes('<option value="true">true</option>'));
+    });
+
+    it("locked array field has disabled controls and no add/remove buttons", () => {
+        const html = renderPreview(
+            model([record([field({ kind: "array", elementKind: "integer", value: "[1]", items: ["1"], editable: false })])]),
+            null
+        );
+        assert.ok(html.includes('class="array-value" value="1" disabled'));
+        assert.ok(!html.includes("array-add"));
+        assert.ok(!html.includes("array-remove"));
+    });
+
+    it("unset array field renders an empty list with an add button", () => {
+        const html = renderPreview(
+            model([record([field({ kind: "array", elementKind: "integer", value: null, items: null, optional: true })])]),
+            null
+        );
+        assert.ok(!html.includes("array-value"));
+        assert.ok(html.includes('class="array-add"'));
     });
 
     it("unset optional field shows empty input and no remove button", () => {

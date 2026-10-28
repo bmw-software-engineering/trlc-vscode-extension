@@ -30,7 +30,7 @@ the parse has moved on.
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from lsprotocol.converters import get_converter
 from lsprotocol.types import (
@@ -100,12 +100,15 @@ class PreviewModelParams:
 
 @dataclass
 class PreviewSetFieldParams:
-    """Params for :data:`PREVIEW_SET_FIELD_METHOD`; ``value=None`` unsets."""
+    """Params for :data:`PREVIEW_SET_FIELD_METHOD`.
+
+    ``value=None`` unsets; array fields take a list of element inputs.
+    """
 
     uri: str
     record: str
     field: str
-    value: Optional[str] = None
+    value: Optional[Union[str, "list[str]"]] = None
 
 
 @dataclass

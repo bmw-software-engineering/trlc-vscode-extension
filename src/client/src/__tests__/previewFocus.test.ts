@@ -28,6 +28,7 @@ import {
     selectCommitValue,
     shouldRenderNow,
     textCommitValue,
+    arrayCommitValue,
 } from "../previewFocus";
 import { PreviewModel, PreviewNode } from "../previewProtocol";
 
@@ -58,6 +59,29 @@ describe("previewFocus", () => {
         assert.strictEqual(selectCommitValue("a", "b"), "a");
         assert.strictEqual(selectCommitValue("", "b"), null);
         assert.strictEqual(selectCommitValue("", ""), undefined);
+    });
+});
+
+describe("arrayCommitValue", () => {
+    const row = (value: string, added = false) => ({ value, added });
+
+    it("posts the elements in order", () => {
+        assert.deepStrictEqual(arrayCommitValue([row("a"), row("b", true)], ["a"]), ["a", "b"]);
+    });
+
+    it("posts nothing when the list is unchanged", () => {
+        assert.strictEqual(arrayCommitValue([row("a"), row("b")], ["a", "b"]), undefined);
+        assert.strictEqual(arrayCommitValue([], []), undefined);
+    });
+
+    it("ignores added rows left empty, keeps existing empty elements", () => {
+        assert.strictEqual(arrayCommitValue([row("a"), row(" ", true)], ["a"]), undefined);
+        assert.deepStrictEqual(arrayCommitValue([row(""), row("b", true)], [""]), ["", "b"]);
+    });
+
+    it("posts the shorter list after a removal, down to an empty list", () => {
+        assert.deepStrictEqual(arrayCommitValue([row("b")], ["a", "b"]), ["b"]);
+        assert.deepStrictEqual(arrayCommitValue([], ["a"]), []);
     });
 });
 
@@ -98,7 +122,7 @@ describe("textCommitValue", () => {
             name,
             type: "T",
             line: 0,
-            fields: [{ name: "x", kind: "integer", value, optional: false, editable: true, enumValues: null, markdown: false }],
+            fields: [{ name: "x", kind: "integer", value, optional: false, editable: true, enumValues: null, elementKind: null, items: null, markdown: false }],
         });
         const sec = (sectionId: number, title: string, children: PreviewNode[]): PreviewNode => ({
             kind: "section",

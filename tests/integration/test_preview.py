@@ -125,6 +125,36 @@ class TestPreview:
         )
         assert "errors" in result.error
 
+    async def test_array_field_takes_a_list(
+        self, client, types_uri, sample_uri
+    ):
+        rsl = "package Types\ntype Tagged {\n    tags String [0 .. *]\n}\n"
+        open_document(client, types_uri, rsl)
+        open_document(
+            client, sample_uri, 'package Types\nTagged t { tags = ["a"] }\n'
+        )
+        await wait_for_diagnostics(client, sample_uri)
+        model = await client.protocol.send_request_async(
+            "trlc/previewModel", {"uri": sample_uri}
+        )
+        (field,) = model.nodes[0].fields
+        assert field.kind == "array"
+        assert field.elementKind == "string"
+        assert field.items == ["a"]
+
+        result = await client.protocol.send_request_async(
+            "trlc/previewSetField",
+            {
+                "uri": sample_uri,
+                "record": "t",
+                "field": "tags",
+                "value": ["a", "b c"],
+            },
+        )
+        assert result.edit.documentChanges[0].edits[0].newText == (
+            '["a", "b c"]'
+        )
+
     async def test_missing_required_value_stays_editable(
         self, client, types_uri, sample_uri
     ):

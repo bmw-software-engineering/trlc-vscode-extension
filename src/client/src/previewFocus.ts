@@ -66,6 +66,23 @@ export function textCommitValue(value: string, kind: string, optional: boolean):
     return optional && empty ? null : value;
 }
 
+/** One element row of a rendered list field. */
+export interface ArrayRow {
+    value: string;
+    /** Created in the preview (not part of the rendered list). */
+    added: boolean;
+}
+
+/**
+ * Value to post for a list field: its elements in order. Added rows left
+ * empty are ignored; undefined posts nothing (unchanged from `rendered`).
+ */
+export function arrayCommitValue(rows: ArrayRow[], rendered: string[]): string[] | undefined {
+    const items = rows.filter((r) => !(r.added && r.value.trim() === "")).map((r) => r.value);
+    const unchanged = items.length === rendered.length && items.every((v, i) => v === rendered[i]);
+    return unchanged ? undefined : items;
+}
+
 /**
  * Whether a webview message addresses sections by id (add record and the
  * structure edits). Such an intent is only valid for the model it was made

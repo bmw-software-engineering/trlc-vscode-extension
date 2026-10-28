@@ -23,6 +23,7 @@ import re
 from typing import Optional
 
 from trlc.ast import (
+    Array_Type,
     Builtin_Boolean,
     Builtin_Decimal,
     Builtin_Integer,
@@ -63,12 +64,28 @@ _KINDS = (
 )
 
 
-def field_kind(n_typ) -> str:
-    """Classify a TRLC type into a preview editor value kind."""
+def _scalar_kind(n_typ) -> str:
     for cls, kind in _KINDS:
         if isinstance(n_typ, cls):
             return kind
     return "other"
+
+
+def element_type(n_typ):
+    """Element type of an array type, or None for other types."""
+    return n_typ.element_type if isinstance(n_typ, Array_Type) else None
+
+
+def field_kind(n_typ) -> str:
+    """Classify a TRLC type into a preview editor value kind.
+
+    Arrays of scalars are "array" (their elements have the kind of
+    the element type); other arrays are "other" (raw text).
+    """
+    elem = element_type(n_typ)
+    if elem is not None:
+        return "other" if _scalar_kind(elem) == "other" else "array"
+    return _scalar_kind(n_typ)
 
 
 def type_ref(entity, cur_package) -> str:
@@ -184,19 +201,53 @@ def format_value(kind: str, raw: str, n_typ, cur_package) -> str:
     return text
 
 
+def format_array(items, n_typ, cur_package) -> str:
+    """Render a list of raw element inputs as a TRLC array literal.
+
+    Each element is formatted like a single value of the element type;
+    the number of elements must satisfy the array's bounds.
+    """
+    if not isinstance(items, list) or not all(
+        isinstance(item, str) for item in items
+    ):
+        raise PreviewEditError("A list value must be a list of texts.")
+    if len(items) < n_typ.lower_bound:
+        raise PreviewEditError(
+            f"The list needs at least {n_typ.lower_bound} element(s)."
+        )
+    if n_typ.upper_bound is not None and len(items) > n_typ.upper_bound:
+        raise PreviewEditError(
+            f"The list allows at most {n_typ.upper_bound} element(s)."
+        )
+    elem = n_typ.element_type
+    kind = _scalar_kind(elem)
+    return (
+        "["
+        + ", ".join(
+            format_value(kind, item, elem, cur_package) for item in items
+        )
+        + "]"
+    )
+
+
+_PLACEHOLDERS = {
+    "integer": "0",
+    "decimal": "0.0",
+    "boolean": "false",
+    "string": '""',
+}
+
+
 def placeholder(kind: str, n_typ, cur_package) -> Optional[str]:
     """Default TRLC text for a newly added field, or None to omit it.
 
-    For enums this is the first literal in declaration order.
+    For enums this is the first literal in declaration order; arrays
+    get an empty list unless they need elements.
     """
-    if kind == "integer":
-        return "0"
-    if kind == "decimal":
-        return "0.0"
-    if kind == "boolean":
-        return "false"
-    if kind == "string":
-        return '""'
+    if kind in _PLACEHOLDERS:
+        return _PLACEHOLDERS[kind]
+    if kind == "array" and n_typ.lower_bound == 0:
+        return "[]"
     if kind == "enum":
         first = next(iter(n_typ.literals.table.values()), None)
         if first is not None:

@@ -182,6 +182,55 @@ def test_array_value_is_source_text(tmp_path):
     assert nodes[0]["fields"][0]["value"] == '["a", "b"]'
 
 
+ARRAY_RSL = """\
+package P
+enum Color { Red Green }
+type T {
+    tags optional String [0 .. *]
+    nums optional Integer [0 .. *]
+    colors optional Color [0 .. *]
+    refs optional T [0 .. *]
+}
+"""
+
+
+def test_array_fields_list_their_items(tmp_path):
+    src = (
+        "package P\nT r1 {\n"
+        '    tags = ["a, b", "c \\"q\\""]\n'
+        "    nums = [1, -2, 0x3 /* c */]\n"
+        "    colors = [Color.Green, P.Color.Red]\n"
+        "    refs = [r1]\n"
+        "}\n"
+    )
+    nodes = _build(tmp_path, ARRAY_RSL, src)["nodes"]
+    fields = {f["name"]: f for f in nodes[0]["fields"]}
+    assert fields["tags"]["kind"] == "array"
+    assert fields["tags"]["elementKind"] == "string"
+    assert fields["tags"]["items"] == ["a, b", 'c "q"']
+    assert fields["nums"]["items"] == ["1", "-2", "0x3"]
+    assert fields["nums"]["elementKind"] == "integer"
+    assert fields["colors"]["items"] == ["Green", "Red"]
+    assert fields["colors"]["enumValues"] == ["Red", "Green"]
+    assert fields["refs"]["items"] == ["r1"]
+    assert fields["refs"]["elementKind"] == "reference"
+
+
+def test_unset_and_empty_array_items(tmp_path):
+    src = "package P\nT r1 { nums = [] }\n"
+    nodes = _build(tmp_path, ARRAY_RSL, src)["nodes"]
+    fields = {f["name"]: f for f in nodes[0]["fields"]}
+    assert fields["nums"]["items"] == []
+    assert fields["tags"]["items"] is None
+    assert fields["tags"]["value"] is None
+
+
+def test_scalar_fields_have_no_items(model):
+    field = model["nodes"][0]["children"][0]["fields"][0]
+    assert field["items"] is None
+    assert field["elementKind"] is None
+
+
 def test_sections_open_at_eof_keep_their_records(tmp_path):
     # TRLC's error recovery keeps a file whose sections are never closed.
     rsl = "package P\ntype T {\n    a Integer\n}\n"

@@ -26,7 +26,7 @@ edits are only valid against the exact ``content`` that was parsed.
 # pylint: disable=too-many-arguments,too-many-positional-arguments
 
 import re
-from typing import Optional
+from typing import Optional, Union
 
 from lsprotocol.types import Position, Range, TextEdit
 from trlc.ast import Implicit_Null, Symbol_Table
@@ -36,6 +36,7 @@ from server.preview_scan import FieldSpan, FileStructure, RecordSpan
 from server.preview_values import (
     PreviewEditError,
     field_kind,
+    format_array,
     format_markdown,
     format_value,
     placeholder,
@@ -185,19 +186,39 @@ def _field_indent(content: str, structure: FileStructure, rec) -> str:
     return _indent(content, tokens[rec.name_tok].location.start_pos) + _STEP
 
 
+def _value_text(
+    content: str, structure, rec, comp, value, markdown: bool, cur_package
+) -> str:
+    """TRLC source text of *value* for component *comp* of *rec*."""
+    kind = field_kind(comp.n_typ)
+    if kind == "array":
+        text = format_array(value, comp.n_typ, cur_package)
+    elif not isinstance(value, str):
+        raise PreviewEditError(f"Field '{comp.name}' takes a single value.")
+    elif kind == "string" and markdown:
+        return format_markdown(
+            value, _field_indent(content, structure, rec), _eol(content)
+        )
+    else:
+        text = format_value(kind, value, comp.n_typ, cur_package)
+    # Multi-line string literals must use the file's line endings.
+    return text.replace("\n", _eol(content))
+
+
 def set_field_edits(
     structure: FileStructure,
     content: str,
     cur_package,
     record: str,
     field: str,
-    value: Optional[str],
+    value: Optional[Union[str, "list[str]"]],
     markdown_components: "tuple[str, ...]" = (),
 ) -> "list[TextEdit]":
     """Edits that set (or, with ``value=None``, unset) a record field.
 
     String fields named in *markdown_components* are written as
-    indented triple-quoted Markdown blocks.
+    indented triple-quoted Markdown blocks. Array fields take a list
+    of element inputs, every other field a single text.
     """
     rec = structure.record(record)
     if rec is None:
@@ -226,15 +247,15 @@ def set_field_edits(
             return []
         return _to_utf16(content, [_delete_assignment(content, tokens, span)])
 
-    kind = field_kind(comp.n_typ)
-    if kind == "string" and field in markdown_components:
-        text = format_markdown(
-            value, _field_indent(content, structure, rec), _eol(content)
-        )
-    else:
-        text = format_value(kind, value, comp.n_typ, cur_package)
-        # Multi-line string literals must use the file's line endings.
-        text = text.replace("\n", _eol(content))
+    text = _value_text(
+        content,
+        structure,
+        rec,
+        comp,
+        value,
+        comp.name in markdown_components,
+        cur_package,
+    )
     if span is not None:
         return _to_utf16(content, [_replace_value(tokens, span, text)])
     return _to_utf16(

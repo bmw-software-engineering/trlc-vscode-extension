@@ -36,6 +36,7 @@ import {
     WebviewToHost,
 } from "./previewProtocol";
 import {
+    arrayCommitValue,
     focusLeavesPreview,
     intentModelVersion,
     isIdBasedIntent,
@@ -51,7 +52,14 @@ import {
     rejectionApplies,
 } from "./previewMarkdown";
 import { MarkdownFieldHandle, mountMarkdownField } from "./previewMarkdownEditor";
-import { escapeHtml, LastNodes, renderErrorBanner, renderNoDocument, renderPreview } from "./previewRender";
+import {
+    escapeHtml,
+    LastNodes,
+    renderArrayRow,
+    renderErrorBanner,
+    renderNoDocument,
+    renderPreview,
+} from "./previewRender";
 
 declare function acquireVsCodeApi(): { postMessage(msg: WebviewToHost): void };
 
@@ -267,7 +275,7 @@ function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }
         record: msg.record,
         field: msg.field,
         serverValue: f.value ?? "",
-        value: msg.value ?? "",
+        value: typeof msg.value === "string" ? msg.value : "",
         message: msg.message,
         retry: msg.retry === true,
     };
@@ -396,10 +404,40 @@ function commit(el: Control): void {
     el.defaultValue = el.value;
 }
 
+/** The rendered field of a list field's element (or its add button). */
+function arrayFieldOf(el: Element): { el: HTMLElement; field: PreviewField } | null {
+    const fieldEl = el.closest<HTMLElement>(".array-field");
+    const record = fieldEl ? recordOf(fieldEl) : null;
+    const name = fieldEl?.dataset.field;
+    const field = record !== null && name !== undefined ? findField(activeNodes(), record, name) : null;
+    return fieldEl && field ? { el: fieldEl, field } : null;
+}
+
+/** Posts the elements of a list field if they differ from the rendered list. */
+function commitArray(fieldEl: HTMLElement, field: PreviewField): void {
+    const record = recordOf(fieldEl);
+    if (record === null || currentModel === null) {
+        return;
+    }
+    const rows = Array.from(fieldEl.querySelectorAll<HTMLElement>(".array-item")).map((row) => ({
+        value: row.querySelector<HTMLInputElement | HTMLSelectElement>(".array-value")?.value ?? "",
+        added: row.dataset.added === "1",
+    }));
+    const value = arrayCommitValue(rows, field.items ?? []);
+    if (value !== undefined) {
+        post({ type: "setField", uri: currentModel.uri, record, field: field.name, value });
+    }
+}
+
 root.addEventListener("change", (e) => {
     const t = e.target;
     if ((t instanceof HTMLInputElement || t instanceof HTMLSelectElement) && t.dataset.field !== undefined) {
         commit(t);
+    } else if (t instanceof Element && t.classList.contains("array-value")) {
+        const owner = arrayFieldOf(t);
+        if (owner) {
+            commitArray(owner.el, owner.field);
+        }
     }
 });
 
@@ -531,6 +569,18 @@ root.addEventListener("click", (e) => {
                 ?.querySelector<HTMLElement>("[data-field]")?.dataset.field;
             if (record !== null && field !== undefined && currentModel !== null) {
                 post({ type: "setField", uri: currentModel.uri, record, field, value: null });
+            }
+        } else if (button.classList.contains("array-add")) {
+            const owner = arrayFieldOf(button);
+            if (owner) {
+                button.insertAdjacentHTML("beforebegin", renderArrayRow(owner.field, "", false, true));
+                button.previousElementSibling?.querySelector<HTMLElement>(".array-value")?.focus();
+            }
+        } else if (button.classList.contains("array-remove")) {
+            const owner = arrayFieldOf(button);
+            button.closest(".array-item")?.remove();
+            if (owner) {
+                commitArray(owner.el, owner.field);
             }
         } else if (button.classList.contains("add-record")) {
             showAddForm(button);

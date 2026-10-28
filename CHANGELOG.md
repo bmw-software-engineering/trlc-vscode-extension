@@ -31,6 +31,11 @@ All notable changes to the TRLC VSCode Extension are documented here.
   controls are disabled until the preview has caught up. The table of
   contents is capped at about a third of the panel height and jumps land
   below it.
+- **Preview: list fields** — Array components get one editor per element
+  with **+**/**x** buttons; the server writes the brackets and quotes and
+  checks element values and bounds. Previously a value typed into a list
+  field was written without brackets and locked the preview. Table grid
+  lines in Markdown fields are now visible in dark themes.
 
 ---
 
