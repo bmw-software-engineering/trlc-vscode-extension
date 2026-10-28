@@ -135,6 +135,11 @@ def format_markdown(raw: str, indent: str, eol: str) -> str:
     while lines and not lines[-1]:
         lines.pop()
     expected = "\n".join(lines)
+    if _SINGLE3 in expected and _DOUBLE3 in expected:
+        raise PreviewEditError(
+            "This Markdown contains both ''' and \"\"\" and cannot be "
+            "stored as a TRLC string."
+        )
     body_indent = indent + _MARKDOWN_STEP
     body = "\n".join(body_indent + line if line else "" for line in lines)
     quote = _SINGLE3 if _SINGLE3 not in expected else _DOUBLE3

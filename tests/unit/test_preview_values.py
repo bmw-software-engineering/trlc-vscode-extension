@@ -324,3 +324,8 @@ def test_markdown_uses_double_quotes_when_needed():
     literal = format_markdown(raw, "", "\n")
     assert literal.startswith('"""') and literal.endswith('"""')
     assert triple_quoted_string_value(literal) == raw
+
+
+def test_markdown_with_both_triple_quotes_is_refused():
+    with pytest.raises(PreviewEditError, match="both ''' and"):
+        format_markdown("a ''' b \"\"\" c", "", "\n")
