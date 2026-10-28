@@ -144,6 +144,12 @@ and can be undone with `Ctrl+Z`.
   saves it when you leave the field again.
 - A field edit always goes to the file it was made in, even if the preview
   has meanwhile followed another editor.
+- Reference fields (and the elements of reference lists) suggest the
+  records they accept while you type: records of the field's type or a
+  subtype (for `[A, B]`, of either), from the file's package and its
+  imports, in the current parse scope. Records of another package are
+  suggested with the package prefix (`Pkg.name`). Typing a name that is
+  not suggested is still possible.
 - In a list, the preview writes the brackets, quotes string elements and
   checks every element and the number of elements against the type (for
   example `[1 .. 3]`). An element added with **+** and left empty is

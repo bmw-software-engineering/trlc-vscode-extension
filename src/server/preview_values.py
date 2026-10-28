@@ -30,6 +30,7 @@ from trlc.ast import (
     Builtin_String,
     Enumeration_Type,
     Record_Type,
+    Union_Type,
 )
 from trlc.errors import Message_Handler, TRLC_Error
 from trlc.lexer import TRLC_Lexer, triple_quoted_string_value
@@ -61,6 +62,8 @@ _KINDS = (
     (Builtin_Boolean, "boolean"),
     (Enumeration_Type, "enum"),
     (Record_Type, "reference"),
+    # A component typed [A, B] references a record of either type.
+    (Union_Type, "reference"),
 )
 
 

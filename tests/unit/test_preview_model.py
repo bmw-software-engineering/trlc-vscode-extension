@@ -269,3 +269,64 @@ def test_markdown_flag_only_for_configured_string_fields(tmp_path):
     assert fields["x"]["markdown"] is False
     default = build_preview_model("file:///p.trlc", parsed)
     assert all(f["markdown"] is False for f in default["nodes"][0]["fields"])
+
+
+REF_RSL = """\
+package P
+type A {
+    n optional Integer
+}
+type B extends A {
+}
+type C {
+    n optional Integer
+}
+type T {
+    ref optional A
+    refs optional A [0 .. *]
+    any optional [B, C]
+    num optional Integer
+}
+"""
+
+
+def _build_files(tmp_path, files, target):
+    sm = Source_Manager(Message_Handler())
+    for name, text in files.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        sm.register_file(str(tmp_path / name), text)
+    sm.process()
+    return build_preview_model(
+        "file:///" + target, sm.all_files[str(tmp_path / target)]
+    )
+
+
+def test_reference_fields_name_their_candidates(tmp_path):
+    src = "package P\nA a1 { }\nB b1 { }\nC c1 { }\nT holder { ref = a1 }\n"
+    model = _build_files(tmp_path, {"p.rsl": REF_RSL, "p.trlc": src}, "p.trlc")
+    t = next(n for n in model["nodes"] if n["name"] == "holder")
+    fields = {f["name"]: f for f in t["fields"]}
+    assert fields["ref"]["referenceType"] == "A"
+    # The array's elements reference the same type: one shared list.
+    assert fields["refs"]["referenceType"] == "A"
+    assert fields["any"]["referenceType"] == "B|C"
+    assert fields["num"]["referenceType"] is None
+    # Subtypes count; other types do not.
+    assert model["references"] == {"A": ["a1", "b1"], "B|C": ["b1", "c1"]}
+
+
+def test_references_from_imported_packages_are_qualified(tmp_path):
+    files = {
+        "p.rsl": REF_RSL,
+        "q.rsl": "package Q\nimport P\ntype U {\n    r optional P.A\n}\n",
+        "p.trlc": "package P\nA a1 { }\n",
+        "q.trlc": "package Q\nimport P\nU holder { }\n",
+    }
+    model = _build_files(tmp_path, files, "q.trlc")
+    (field,) = model["nodes"][0]["fields"]
+    assert field["referenceType"] == "P.A"
+    assert model["references"] == {"P.A": ["P.a1"]}
+
+
+def test_unavailable_model_has_no_references():
+    assert not unavailable_model("file:///x.trlc", "r")["references"]

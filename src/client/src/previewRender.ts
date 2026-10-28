@@ -42,12 +42,29 @@ function option(value: string, current: string | null): string {
     return `<option value="${v}"${sel}>${v}</option>`;
 }
 
+/** `list` attribute linking a reference input to its suggestions (see renderReferenceLists). */
+function listAttr(referenceType: string | null): string {
+    return referenceType === null ? "" : ` list="trlc-refs:${escapeHtml(referenceType)}"`;
+}
+
+/** One `<datalist>` of record names per expected reference type. */
+function renderReferenceLists(references: Record<string, string[]>): string {
+    return Object.entries(references)
+        .map(
+            ([key, names]) =>
+                `<datalist id="trlc-refs:${escapeHtml(key)}">` +
+                names.map((n) => `<option value="${escapeHtml(n)}"></option>`).join("") +
+                `</datalist>`
+        )
+        .join("");
+}
+
 /**
  * One element row of a list field. `added` marks a row created in the
  * preview (an added row left empty is not committed).
  */
 export function renderArrayRow(
-    f: Pick<PreviewField, "elementKind" | "enumValues">,
+    f: Pick<PreviewField, "elementKind" | "enumValues" | "referenceType">,
     value: string,
     locked: boolean,
     added: boolean
@@ -59,7 +76,7 @@ export function renderArrayRow(
         const blank = value === "" ? '<option value="" selected></option>' : "";
         control = `<select class="array-value"${dis}>${blank}${values.map((v) => option(v, value)).join("")}</select>`;
     } else {
-        control = `<input type="text" class="array-value" value="${escapeHtml(value)}"${dis}>`;
+        control = `<input type="text" class="array-value" value="${escapeHtml(value)}"${listAttr(f.referenceType)}${dis}>`;
     }
     const remove = locked ? "" : '<button class="array-remove" title="Remove element">&times;</button>';
     return `<div class="array-item"${added ? ' data-added="1"' : ""}>${control}${remove}</div>`;
@@ -101,7 +118,7 @@ function renderControl(f: PreviewField, locked: boolean): string {
                   : "";
         return `<select ${attrs}>${blank}${values.map((v) => option(v, f.value)).join("")}</select>`;
     }
-    return `<input type="text" ${attrs} value="${escapeHtml(value)}">`;
+    return `<input type="text" ${attrs} value="${escapeHtml(value)}"${listAttr(f.referenceType)}>`;
 }
 
 function renderField(f: PreviewField, modelLocked: boolean): string {
@@ -223,7 +240,8 @@ export function renderPreview(model: PreviewModel, last: LastNodes | null): stri
         renderChildren(nodes, null, locked) +
         dropZone(null, null) +
         addRecordButton(null, locked) +
-        addSectionButton(null, locked)
+        addSectionButton(null, locked) +
+        renderReferenceLists(model.references ?? {})
     );
 }
 

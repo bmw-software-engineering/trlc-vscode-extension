@@ -122,7 +122,7 @@ describe("textCommitValue", () => {
             name,
             type: "T",
             line: 0,
-            fields: [{ name: "x", kind: "integer", value, optional: false, editable: true, enumValues: null, elementKind: null, items: null, markdown: false }],
+            fields: [{ name: "x", kind: "integer", value, optional: false, editable: true, enumValues: null, elementKind: null, items: null, referenceType: null, markdown: false }],
         });
         const sec = (sectionId: number, title: string, children: PreviewNode[]): PreviewNode => ({
             kind: "section",
@@ -140,6 +140,7 @@ describe("textCommitValue", () => {
             recordTypes: ["T"],
             nodes,
             version,
+            references: {},
             ...extra,
         });
         const shown = model(3, [sec(0, "A", [rec("r")]), sec(1, "B", [])]);

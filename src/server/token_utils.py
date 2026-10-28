@@ -346,6 +346,24 @@ def resolve_document_tokens(
     return ResolvedTokens(tokens=tokens, ast_available=False)
 
 
+def record_type_satisfies(candidate_type, expected_type) -> bool:
+    """True if a Record_Object's *candidate_type* satisfies *expected_type*.
+
+    *expected_type* may be a single ``Record_Type`` (candidate must be it or
+    an ``extends`` subtype) or a ``Union_Type`` (candidate must satisfy any
+    one of its member types — a field like ``item [FeatReq,
+    AssumedSystemReq]`` legitimately accepts either).
+    """
+    if isinstance(expected_type, trlc.ast.Record_Type):
+        return candidate_type.is_subclass_of(expected_type)
+    if isinstance(expected_type, trlc.ast.Union_Type):
+        return any(
+            candidate_type.is_subclass_of(member)
+            for member in expected_type.types
+        )
+    return True
+
+
 def lookup_by_name(table, name: Optional[str], required_type):
     """Side-effect-free symbol lookup by *name* in *table* (a Symbol_Table).
 

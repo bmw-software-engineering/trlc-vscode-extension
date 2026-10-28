@@ -24,7 +24,9 @@ from trlc.ast import (
     Enumeration_Literal,
     Implicit_Null,
     Literal,
+    Record_Object,
     String_Literal,
+    Union_Type,
 )
 
 from server.preview_scan import FieldSpan, FileStructure, RecordSpan, scan_file
@@ -34,6 +36,7 @@ from server.preview_values import (
     type_ref,
     visible_record_types,
 )
+from server.token_utils import record_type_satisfies
 
 
 def unavailable_model(uri: str, reason: str) -> dict:
@@ -46,7 +49,37 @@ def unavailable_model(uri: str, reason: str) -> dict:
         "recordTypes": [],
         "nodes": None,
         "version": None,
+        "references": {},
     }
+
+
+class _References:  # pylint: disable=too-few-public-methods  # a cache
+    """Record names a reference field accepts, keyed by expected type.
+
+    Fields expecting the same type share one candidate list, so the
+    model carries each list once.
+    """
+
+    def __init__(self, cu):
+        self._cu = cu
+        #: Expected type key (e.g. ``A``, ``P.A``, ``B|C``) -> names.
+        self.candidates: "dict[str, list[str]]" = {}
+
+    def key_for(self, n_typ) -> str:
+        """Key of *n_typ* (a record or union type); collects candidates."""
+        pkg = self._cu.package
+        if isinstance(n_typ, Union_Type):
+            key = "|".join(type_ref(t, pkg) for t in n_typ.types)
+        else:
+            key = type_ref(n_typ, pkg)
+        if key not in self.candidates:
+            self.candidates[key] = sorted(
+                type_ref(obj, pkg)
+                for package in [pkg, *self._cu.imports]
+                for obj in package.symbols.values(Record_Object)
+                if record_type_satisfies(obj.n_typ, n_typ)
+            )
+        return key
 
 
 def _source_text(parsed, structure: FileStructure, span) -> str:
@@ -103,24 +136,31 @@ def _array_items(
     ]
 
 
-def _kind_extras(kind: str, n_typ) -> dict:
-    """``enumValues`` and ``elementKind`` of a field of type *n_typ*."""
+def _kind_extras(kind: str, n_typ, refs: _References) -> dict:
+    """``enumValues``, ``elementKind`` and ``referenceType`` of a field."""
     elem_kind = None
     if kind == "array":
         n_typ = element_type(n_typ)
         elem_kind = field_kind(n_typ)
     enum_values = None
+    reference_type = None
     if (elem_kind or kind) == "enum":
         enum_values = [lit.name for lit in n_typ.literals.table.values()]
-    return {"enumValues": enum_values, "elementKind": elem_kind}
+    elif (elem_kind or kind) == "reference":
+        reference_type = refs.key_for(n_typ)
+    return {
+        "enumValues": enum_values,
+        "elementKind": elem_kind,
+        "referenceType": reference_type,
+    }
 
 
-def _fields(parsed, structure, rec: RecordSpan, markdown) -> list:
+def _fields(parsed, structure, rec: RecordSpan, markdown, refs) -> list:
     obj = rec.obj
     fields = []
     for comp in obj.n_typ.all_components():
         kind = field_kind(comp.n_typ)
-        extras = _kind_extras(kind, comp.n_typ)
+        extras = _kind_extras(kind, comp.n_typ, refs)
         value = _field_value(
             parsed, structure, rec, comp, obj.field.get(comp.name)
         )
@@ -145,7 +185,9 @@ def _fields(parsed, structure, rec: RecordSpan, markdown) -> list:
     return fields
 
 
-def _record_node(parsed, structure, rec: RecordSpan, markdown) -> dict:
+def _record_node(
+    parsed, structure, rec: RecordSpan, markdown, refs: _References
+) -> dict:
     cur_package = parsed.cu.package
     name_tok = structure.tokens[rec.name_tok]
     return {
@@ -153,7 +195,7 @@ def _record_node(parsed, structure, rec: RecordSpan, markdown) -> dict:
         "name": rec.obj.name,
         "type": type_ref(rec.obj.n_typ, cur_package),
         "line": name_tok.location.line_no - 1,
-        "fields": _fields(parsed, structure, rec, markdown),
+        "fields": _fields(parsed, structure, rec, markdown, refs),
     }
 
 
@@ -164,9 +206,12 @@ def build_preview_model(
 
     String fields named in *markdown_components* are flagged
     ``"markdown": True`` so the client renders and edits them as Markdown.
+    Reference fields name the records they accept via ``referenceType``
+    and the model's ``references``.
     """
     structure = scan_file(parsed.lexer.tokens)
     cu = parsed.cu
+    refs = _References(cu)
 
     section_nodes = {
         sec.section_id: {
@@ -193,7 +238,9 @@ def build_preview_model(
     for _, item in sorted(items, key=lambda pair: pair[0]):
         if isinstance(item, RecordSpan):
             container(item.section_id).append(
-                _record_node(parsed, structure, item, markdown_components)
+                _record_node(
+                    parsed, structure, item, markdown_components, refs
+                )
             )
         else:
             container(item.parent_id).append(section_nodes[item.section_id])
@@ -207,4 +254,6 @@ def build_preview_model(
         "nodes": roots,
         # Set by the handler: the buffer version the parse matches.
         "version": None,
+        # Candidates of the fields' "referenceType" keys.
+        "references": refs.candidates,
     }

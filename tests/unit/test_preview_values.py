@@ -67,6 +67,8 @@ type MyRecord {
     p optional Pair
     pairs optional Pair [0 .. *]
     colors optional Color [1 .. *]
+    either optional [MyRecord, Base]
+    rs optional MyRecord [0 .. *]
 }
 """
 
@@ -113,6 +115,8 @@ def test_field_kind_maps_builtins(cu):
     assert field_kind(rec.components.table["arr"].n_typ) == "array"
     assert field_kind(rec.components.table["colors"].n_typ) == "array"
     assert field_kind(_lookup(cu, "Pair")) == "other"
+    assert field_kind(rec.components.table["either"].n_typ) == "reference"
+    assert field_kind(rec.components.table["rs"].n_typ) == "array"
     # Lists of tuples have no element editor: edited as raw text.
     assert field_kind(rec.components.table["pairs"].n_typ) == "other"
 

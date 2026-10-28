@@ -40,6 +40,7 @@ const MODEL: PreviewModel = {
     recordTypes: ["T"],
     nodes: [],
     version: 1,
+    references: {},
 };
 
 function setup(): { deps: PreviewDeps & { sendRequest: sinon.SinonStub; applyEdit: sinon.SinonStub; showError: sinon.SinonStub; reveal: sinon.SinonStub }; post: sinon.SinonStub; ctl: PreviewController } {

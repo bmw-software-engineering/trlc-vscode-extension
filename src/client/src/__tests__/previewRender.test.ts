@@ -41,6 +41,7 @@ function field(overrides: Partial<PreviewField> = {}): PreviewField {
         enumValues: null,
         elementKind: null,
         items: null,
+        referenceType: null,
         markdown: false,
         ...overrides,
     };
@@ -69,6 +70,7 @@ function model(nodes: PreviewNode[] | null, overrides: Partial<PreviewModel> = {
         recordTypes: ["T"],
         nodes,
         version: 1,
+        references: {},
         ...overrides,
     };
 }
@@ -132,10 +134,10 @@ describe("previewRender", () => {
     });
 
     it("array of enums renders a select per element", () => {
-        const html = renderArrayRow({ elementKind: "enum", enumValues: ["A", "B"] }, "B", false, false);
+        const html = renderArrayRow({ elementKind: "enum", enumValues: ["A", "B"], referenceType: null }, "B", false, false);
         assert.ok(html.includes('<select class="array-value">'));
         assert.ok(html.includes('<option value="B" selected>B</option>'));
-        const added = renderArrayRow({ elementKind: "boolean", enumValues: null }, "", false, true);
+        const added = renderArrayRow({ elementKind: "boolean", enumValues: null, referenceType: null }, "", false, true);
         assert.ok(added.includes('data-added="1"'));
         assert.ok(added.includes('<option value="" selected></option>'));
         assert.ok(added.includes('<option value="true">true</option>'));
@@ -158,6 +160,25 @@ describe("previewRender", () => {
         );
         assert.ok(!html.includes("array-value"));
         assert.ok(html.includes('class="array-add"'));
+    });
+
+    it("reference fields suggest the records of their type", () => {
+        const html = renderPreview(
+            model(
+                [
+                    record([
+                        field({ name: "r", kind: "reference", value: null, referenceType: "P.A" }),
+                        field({ name: "rs", kind: "array", elementKind: "reference", items: ["a1"], referenceType: "P.A" }),
+                    ]),
+                ],
+                { references: { "P.A": ["P.a1", "b<1>"] } }
+            ),
+            null
+        );
+        assert.ok(html.includes('<datalist id="trlc-refs:P.A">'));
+        assert.ok(html.includes('<option value="P.a1"></option><option value="b&lt;1&gt;"></option>'));
+        assert.ok(html.includes('data-field="r" data-kind="reference" value="" list="trlc-refs:P.A"'));
+        assert.ok(html.includes('class="array-value" value="a1" list="trlc-refs:P.A"'));
     });
 
     it("unset optional field shows empty input and no remove button", () => {

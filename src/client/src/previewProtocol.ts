@@ -56,6 +56,8 @@ export interface PreviewField {
     elementKind: PreviewFieldKind | null;
     /** Elements of a set "array" field (string: unescaped, enum: literal name); null otherwise. */
     items: string[] | null;
+    /** Key into PreviewModel.references for a reference (or list-of-references) field; null otherwise. */
+    referenceType: string | null;
     /** true for a string field edited as Markdown (configured via trlcServer.preview.markdownComponents). */
     markdown: boolean;
 }
@@ -100,6 +102,8 @@ export interface PreviewModel {
      * from another version as outdated.
      */
     version: number | null;
+    /** Names of the records each `referenceType` accepts (package-qualified outside the file's package). */
+    references: Record<string, string[]>;
 }
 
 /**

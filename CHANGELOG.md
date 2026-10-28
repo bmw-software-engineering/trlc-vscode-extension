@@ -36,6 +36,10 @@ All notable changes to the TRLC VSCode Extension are documented here.
   checks element values and bounds. Previously a value typed into a list
   field was written without brackets and locked the preview. Table grid
   lines in Markdown fields are now visible in dark themes.
+- **Preview: reference suggestions** — Reference fields and reference
+  list elements suggest the matching record names while typing (the
+  field's type and its subtypes, from the package and its imports).
+  Components typed as a union (`[A, B]`) are now edited as references.
 
 ---
 
