@@ -88,3 +88,53 @@ export function rejectionApplies(
         !markdownChanged(rejection.serverValue, serverValue)
     );
 }
+
+/** What a mounted Markdown editor shows; equal keys can keep the editor across renders. */
+export interface MarkdownFieldIdentity {
+    uri: string;
+    record: string;
+    field: string;
+    /** The server's value (data-value). */
+    value: string;
+    editable: boolean;
+    optional: boolean;
+}
+
+export function markdownFieldKey(f: MarkdownFieldIdentity): string {
+    return JSON.stringify([f.uri, f.record, f.field, f.value, f.editable, f.optional]);
+}
+
+/** A mounted editor of the previous render. */
+export interface MountedMarkdownField {
+    key: string;
+    /** false if it shows other text than its key's value (committed or a refused edit). */
+    reusable: boolean;
+}
+
+/**
+ * Which mounted editors a new render keeps: `reuse[i]` is the index in
+ * `mounted` of the editor moved into the i-th new field (null: mount a new
+ * one), `destroy` the indices of editors no new field takes over.
+ */
+export function planMarkdownReuse(
+    mounted: MountedMarkdownField[],
+    freshKeys: string[]
+): { reuse: (number | null)[]; destroy: number[] } {
+    const free = new Map<string, number[]>();
+    mounted.forEach((m, i) => {
+        if (m.reusable) {
+            free.set(m.key, [...(free.get(m.key) ?? []), i]);
+        }
+    });
+    const taken = new Set<number>();
+    const reuse = freshKeys.map((key) => {
+        const i = free.get(key)?.shift();
+        if (i === undefined) {
+            return null;
+        }
+        taken.add(i);
+        return i;
+    });
+    const destroy = mounted.map((_, i) => i).filter((i) => !taken.has(i));
+    return { reuse, destroy };
+}

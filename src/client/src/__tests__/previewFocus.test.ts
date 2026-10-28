@@ -21,7 +21,15 @@
 
 import * as assert from "assert";
 
-import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "../previewFocus";
+import {
+    focusLeavesPreview,
+    intentModelVersion,
+    isIdBasedIntent,
+    selectCommitValue,
+    shouldRenderNow,
+    textCommitValue,
+} from "../previewFocus";
+import { PreviewModel, PreviewNode } from "../previewProtocol";
 
 describe("previewFocus", () => {
     it("renders only when no input is focused and no add form is open", () => {
@@ -73,5 +81,71 @@ describe("textCommitValue", () => {
 
     it("non-empty input is posted unchanged", () => {
         assert.strictEqual(textCommitValue(" 5 ", "integer", true), " 5 ");
+    });
+
+    it("id-based intents are add record and the structure edits", () => {
+        for (const type of ["addRecord", "insertSection", "renameSection", "dissolveSection", "move"]) {
+            assert.strictEqual(isIdBasedIntent({ type }), true, type);
+        }
+        for (const type of ["setField", "reveal", "ready"]) {
+            assert.strictEqual(isIdBasedIntent({ type }), false, type);
+        }
+    });
+
+    describe("intentModelVersion", () => {
+        const rec = (name: string, value = "1"): PreviewNode => ({
+            kind: "record",
+            name,
+            type: "T",
+            line: 0,
+            fields: [{ name: "x", kind: "integer", value, optional: false, editable: true, enumValues: null, markdown: false }],
+        });
+        const sec = (sectionId: number, title: string, children: PreviewNode[]): PreviewNode => ({
+            kind: "section",
+            sectionId,
+            title,
+            depth: 1,
+            closed: true,
+            children,
+        });
+        const model = (version: number, nodes: PreviewNode[] | null, extra: Partial<PreviewModel> = {}): PreviewModel => ({
+            uri: "file:///a.trlc",
+            package: "P",
+            editable: true,
+            reason: null,
+            recordTypes: ["T"],
+            nodes,
+            version,
+            ...extra,
+        });
+        const shown = model(3, [sec(0, "A", [rec("r")]), sec(1, "B", [])]);
+
+        it("is the rendered model's version without a held model", () => {
+            assert.strictEqual(intentModelVersion(shown, null), 3);
+        });
+
+        it("takes a held model's version when only values changed", () => {
+            const held = model(4, [sec(0, "A", [rec("r", "2")]), sec(1, "B", [])]);
+            assert.strictEqual(intentModelVersion(shown, held), 4);
+        });
+
+        it("keeps the rendered version when the layout changed", () => {
+            const variants = [
+                [sec(0, "B", []), sec(1, "A", [rec("r")])],
+                [sec(0, "A", []), sec(1, "B", [rec("r")])],
+                [sec(0, "A", [rec("r"), rec("s")]), sec(1, "B", [])],
+                [sec(0, "A2", [rec("r")]), sec(1, "B", [])],
+            ];
+            for (const nodes of variants) {
+                assert.strictEqual(intentModelVersion(shown, model(4, nodes)), 3);
+            }
+        });
+
+        it("keeps the rendered version for another document, a locked or unavailable model", () => {
+            const nodes = shown.nodes;
+            assert.strictEqual(intentModelVersion(shown, model(4, nodes, { uri: "file:///b.trlc" })), 3);
+            assert.strictEqual(intentModelVersion(shown, model(4, nodes, { editable: false })), 3);
+            assert.strictEqual(intentModelVersion(shown, model(4, null)), 3);
+        });
     });
 });

@@ -34,6 +34,8 @@ export const PREVIEW_DISSOLVE_SECTION_METHOD = "trlc/previewDissolveSection";
 export const PREVIEW_MOVE_METHOD = "trlc/previewMove";
 /** `code` of an edit rejected because the server's parse is behind the buffer. */
 export const STALE_CODE = "stale";
+/** `code` of an id-based edit made from an older model than the server's parse. */
+export const OUTDATED_CODE = "outdated";
 
 export type PreviewFieldKind = "string" | "integer" | "decimal" | "boolean" | "enum" | "reference" | "other";
 
@@ -47,7 +49,7 @@ export interface PreviewField {
     editable: boolean;
     /** Literal names; null unless kind is "enum". */
     enumValues: string[] | null;
-    /** true for a Markup_String field (edited with the Markdown editor). */
+    /** true for a string field edited as Markdown (configured via trlcServer.preview.markdownComponents). */
     markdown: boolean;
 }
 
@@ -84,27 +86,53 @@ export interface PreviewModel {
     recordTypes: string[];
     /** null when the model is unavailable. */
     nodes: PreviewNode[] | null;
+    /**
+     * Buffer version the server's parse matches (null: unavailable or not
+     * open). Id-based edits send it back as `modelVersion`: section ids
+     * renumber after structural edits, so the server refuses an edit made
+     * from another version as outdated.
+     */
+    version: number | null;
 }
 
 /**
  * `edit` is an LSP WorkspaceEdit (JSON) with one versioned TextDocumentEdit
  * in `documentChanges`. `code` is STALE_CODE when the server's parse is
- * behind the buffer (the edit can be retried after the next parse).
+ * behind the buffer (the edit can be retried after the next parse) and
+ * OUTDATED_CODE when an id-based edit was made from another model version.
  */
 export type EditResult = { edit: unknown } | { error: string; code?: string };
 
 export type HostToWebview =
     | { type: "model"; model: PreviewModel }
     | { type: "error"; message: string }
-    | { type: "editRejected"; record: string; field: string; value: string | null; message: string }
+    | {
+          type: "editRejected";
+          record: string;
+          field: string;
+          value: string | null;
+          message: string;
+          /** The parser was busy: committing the same value again may succeed. */
+          retry?: boolean;
+      }
     | { type: "noDocument" };
 
+/**
+ * What an id-based edit was made from: the document and the `version` of
+ * the model on screen.
+ */
+export interface ModelRef {
+    uri: string;
+    modelVersion: number | null;
+}
+
+/** Every edit message names the document (`uri`) of the model it was made from. */
 export type WebviewToHost =
     | { type: "ready" }
-    | { type: "setField"; record: string; field: string; value: string | null }
-    | { type: "addRecord"; sectionId: number | null; recordType: string; name: string }
-    | { type: "insertSection"; sectionId: number | null; title: string }
-    | { type: "renameSection"; sectionId: number; title: string }
-    | { type: "dissolveSection"; sectionId: number }
-    | { type: "move"; item: ItemRef; targetSectionId: number | null; before: ItemRef | null }
+    | { type: "setField"; uri: string; record: string; field: string; value: string | null }
+    | ({ type: "addRecord"; sectionId: number | null; recordType: string; name: string } & ModelRef)
+    | ({ type: "insertSection"; sectionId: number | null; title: string } & ModelRef)
+    | ({ type: "renameSection"; sectionId: number; title: string } & ModelRef)
+    | ({ type: "dissolveSection"; sectionId: number } & ModelRef)
+    | ({ type: "move"; item: ItemRef; targetSectionId: number | null; before: ItemRef | null } & ModelRef)
     | { type: "reveal"; line: number };

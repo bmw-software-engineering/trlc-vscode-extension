@@ -21,6 +21,8 @@
 
 /** Pure decisions of the preview webview (unit-testable without a DOM). */
 
+import { PreviewModel, PreviewNode } from "./previewProtocol";
+
 export interface RenderState {
     /** An input/textarea/select inside the preview has focus. */
     inputFocused: boolean;
@@ -62,4 +64,43 @@ export function selectCommitValue(selected: string, renderedValue: string): stri
 export function textCommitValue(value: string, kind: string, optional: boolean): string | null {
     const empty = kind === "string" ? value === "" : value.trim() === "";
     return optional && empty ? null : value;
+}
+
+/**
+ * Whether a webview message addresses sections by id (add record and the
+ * structure edits). Such an intent is only valid for the model it was made
+ * from, so structure controls stay disabled until the next model renders.
+ */
+export function isIdBasedIntent(msg: { type: string }): boolean {
+    return ["addRecord", "insertSection", "renameSection", "dissolveSection", "move"].includes(msg.type);
+}
+
+/** The layout of a tree as far as id-based intents see it (section ids, titles, nesting; record names). */
+function skeleton(nodes: PreviewNode[] | null): string {
+    const walk = (list: PreviewNode[]): unknown[] =>
+        list.map((n) =>
+            n.kind === "record" ? n.name : [n.sectionId, n.title, n.depth, n.closed, walk(n.children)]
+        );
+    return JSON.stringify(nodes === null ? null : walk(nodes));
+}
+
+/**
+ * `modelVersion` of an id-based intent made from the `rendered` model. A
+ * newer model of the same document can be held back (not rendered while a
+ * form is open or a field is being edited); if its sections and records are
+ * laid out identically, the rendered ids name the same items in it, so its
+ * version is sent instead (otherwise the intent would be refused as
+ * outdated, e.g. after a field edit committed by opening the form).
+ */
+export function intentModelVersion(rendered: PreviewModel, held: PreviewModel | null): number | null {
+    if (
+        held !== null &&
+        held.uri === rendered.uri &&
+        held.editable &&
+        held.nodes !== null &&
+        skeleton(held.nodes) === skeleton(rendered.nodes)
+    ) {
+        return held.version;
+    }
+    return rendered.version;
 }

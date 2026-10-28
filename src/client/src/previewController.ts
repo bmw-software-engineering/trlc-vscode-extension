@@ -55,18 +55,42 @@ export function editMatchesVersions(edit: unknown, versionOf: (uri: string) => n
     });
 }
 
+export const SWITCHED_MESSAGE = "TRLC: The preview switched files; the action was cancelled.";
+export const BUSY_MESSAGE = "TRLC: The parser was busy; the edit was not saved. Try again.";
+const APPLY_FAILED_MESSAGE = "TRLC: Could not apply edit.";
+
+type IdBasedMessage = Exclude<WebviewToHost, { type: "ready" | "reveal" | "setField" }>;
+
+function isStale(result: EditResult | null | undefined): boolean {
+    return result !== null && result !== undefined && "error" in result && result.code === STALE_CODE;
+}
+
+/** Server method and params of an id-based edit (carries uri and modelVersion). */
+export function idBasedRequest(msg: IdBasedMessage): [string, object] {
+    const ref = { uri: msg.uri, modelVersion: msg.modelVersion };
+    switch (msg.type) {
+        case "addRecord":
+            return [PREVIEW_ADD_RECORD_METHOD, { ...ref, sectionId: msg.sectionId, type: msg.recordType, name: msg.name }];
+        case "insertSection":
+            return [PREVIEW_INSERT_SECTION_METHOD, { ...ref, sectionId: msg.sectionId, title: msg.title }];
+        case "renameSection":
+            return [PREVIEW_RENAME_SECTION_METHOD, { ...ref, sectionId: msg.sectionId, title: msg.title }];
+        case "dissolveSection":
+            return [PREVIEW_DISSOLVE_SECTION_METHOD, { ...ref, sectionId: msg.sectionId }];
+        case "move":
+            return [
+                PREVIEW_MOVE_METHOD,
+                { ...ref, item: msg.item, targetSectionId: msg.targetSectionId, before: msg.before },
+            ];
+    }
+}
+
 /** Host-side logic of the preview: mediates between webview and server. */
 export class PreviewController {
     private currentUri: string | undefined;
-    /** Bumped only by setDocument; edit results of a previous document are dropped. */
-    private docGen = 0;
     /** Bumped on every document change and refresh; stale model/error posts are dropped. */
     private seq = 0;
-    /**
-     * Tail of the edit queue. Edits run one at a time: the server computes
-     * positions against its last parse, so the next edit may only be
-     * requested once the previous one has been applied (or has failed).
-     */
+    /** Tail of the edit queue (see enqueue). */
     private editQueue: Promise<void> = Promise.resolve();
     /** Set while a stale-rejected edit waits for the next editable model. */
     private modelWaiter: ((retry: boolean) => void) | undefined;
@@ -85,7 +109,6 @@ export class PreviewController {
             return;
         }
         this.currentUri = uri;
-        this.docGen++;
         this.seq++;
         this.releaseWaiter(false);
         await this.refresh();
@@ -134,106 +157,127 @@ export class PreviewController {
             case "ready":
                 await this.refresh();
                 break;
-            case "setField":
-                await this.edit(
-                    PREVIEW_SET_FIELD_METHOD,
-                    { uri, record: msg.record, field: msg.field, value: msg.value },
-                    (message) =>
-                        this.post({
-                            type: "editRejected",
-                            record: msg.record,
-                            field: msg.field,
-                            value: msg.value,
-                            message,
-                        }),
-                );
-                break;
-            case "addRecord":
-                await this.edit(PREVIEW_ADD_RECORD_METHOD, {
-                    uri,
-                    sectionId: msg.sectionId,
-                    type: msg.recordType,
-                    name: msg.name,
-                });
-                break;
-            case "insertSection":
-                await this.edit(PREVIEW_INSERT_SECTION_METHOD, { uri, sectionId: msg.sectionId, title: msg.title });
-                break;
-            case "renameSection":
-                await this.edit(PREVIEW_RENAME_SECTION_METHOD, { uri, sectionId: msg.sectionId, title: msg.title });
-                break;
-            case "dissolveSection":
-                await this.edit(PREVIEW_DISSOLVE_SECTION_METHOD, { uri, sectionId: msg.sectionId });
-                break;
-            case "move":
-                await this.edit(PREVIEW_MOVE_METHOD, {
-                    uri,
-                    item: msg.item,
-                    targetSectionId: msg.targetSectionId,
-                    before: msg.before,
-                });
-                break;
             case "reveal":
                 this.deps.reveal(uri, msg.line);
                 break;
+            case "setField":
+                // Versioned against msg.uri: still valid after the preview
+                // followed another editor, so it is sent there regardless.
+                await this.enqueue(() => this.runSetField(msg));
+                break;
+            default: {
+                if (msg.uri !== uri) {
+                    // Made from a model that is no longer on screen.
+                    this.deps.showError(SWITCHED_MESSAGE);
+                    return;
+                }
+                const [method, params] = idBasedRequest(msg);
+                await this.enqueue(() => this.runIdBasedEdit(msg.uri, method, params));
+                break;
+            }
         }
     }
 
     /**
-     * Queues an edit behind any edit still in flight. `onRejected` is called
-     * with the message when the server refuses the edit (not when stale).
+     * Queues an edit behind any edit still in flight. Edits run one at a
+     * time: the server computes positions against its last parse, so the
+     * next edit may only be requested once the previous one has been
+     * applied (or has failed).
      */
-    private edit(method: string, params: object, onRejected?: (message: string) => void): Promise<void> {
-        const gen = this.docGen;
-        const run = this.editQueue.then(() => this.runEdit(gen, method, params, onRejected));
+    private enqueue(job: () => Promise<void>): Promise<void> {
+        const run = this.editQueue.then(job);
         this.editQueue = run.catch(() => undefined);
         return run;
     }
 
-    private async runEdit(
-        gen: number,
-        method: string,
-        params: object,
-        onRejected?: (message: string) => void,
-    ): Promise<void> {
-        const stale = (): boolean => gen !== this.docGen;
-        if (stale()) {
-            return;
-        }
-        try {
-            let result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
-            if (stale()) {
-                return;
+    private request(method: string, params: object): Promise<EditResult | null | undefined> {
+        return this.deps.sendRequest<EditResult | null | undefined>(method, params);
+    }
+
+    /**
+     * A field edit. A stale rejection (the server has not parsed the latest
+     * buffer yet, typically the previous edit) is held and resent once on
+     * the next editable model. Refusals are reported to the webview
+     * (editRejected) and refreshed only while its document is still shown.
+     */
+    private async runSetField(msg: Extract<WebviewToHost, { type: "setField" }>): Promise<void> {
+        const { uri, record, field, value } = msg;
+        const shown = (): boolean => this.currentUri === uri;
+        const rejected = async (message: string, retry: boolean): Promise<void> => {
+            this.deps.showError(message);
+            if (shown()) {
+                this.post({ type: "editRejected", record, field, value, message, ...(retry ? { retry } : {}) });
+                await this.refresh();
             }
-            if (result && "error" in result && result.code === STALE_CODE) {
-                // The server has not parsed the latest buffer yet (typically
-                // the previous edit): keep this edit and resend it once.
-                if (!(await this.waitForEditableModel()) || stale()) {
+        };
+        try {
+            const params = { uri, record, field, value };
+            let result = await this.request(PREVIEW_SET_FIELD_METHOD, params);
+            if (isStale(result)) {
+                if (!shown() || !(await this.waitForEditableModel())) {
+                    // No model of that document to wait for any more.
+                    this.deps.showError(BUSY_MESSAGE);
                     return;
                 }
-                result = await this.deps.sendRequest<EditResult | null | undefined>(method, params);
-                if (stale()) {
+                result = await this.request(PREVIEW_SET_FIELD_METHOD, params);
+                if (isStale(result)) {
+                    await rejected(BUSY_MESSAGE, true);
                     return;
                 }
             }
             if (result === null || result === undefined) {
-                this.deps.showError("TRLC: No response from the language server.");
-                await this.refresh();
+                await this.noResponse(shown());
+            } else if ("error" in result) {
+                await rejected("TRLC: " + result.error, false);
+            } else if (!(await this.deps.applyEdit(result.edit))) {
+                this.deps.showError(APPLY_FAILED_MESSAGE);
+            }
+        } catch (e) {
+            this.reportFailure(e, shown());
+        }
+    }
+
+    /**
+     * An edit that addresses sections by id: never resent, since the ids
+     * may mean other sections after the next parse. Any refusal (including
+     * stale and outdated) is shown and the preview refreshed; the webview
+     * keeps its structure controls disabled until that next model.
+     */
+    private async runIdBasedEdit(uri: string, method: string, params: object): Promise<void> {
+        const shown = (): boolean => this.currentUri === uri;
+        try {
+            const result = await this.request(method, params);
+            if (result === null || result === undefined) {
+                await this.noResponse(shown());
                 return;
             }
             if ("error" in result) {
                 this.deps.showError("TRLC: " + result.error);
-                onRejected?.("TRLC: " + result.error);
-                await this.refresh();
-                return;
+            } else if (await this.deps.applyEdit(result.edit)) {
+                return; // the reparse of the edited buffer brings the next model
+            } else {
+                this.deps.showError(APPLY_FAILED_MESSAGE);
             }
-            if (!(await this.deps.applyEdit(result.edit)) && !stale()) {
-                this.deps.showError("TRLC: Could not apply edit.");
+            if (shown()) {
+                await this.refresh();
             }
         } catch (e) {
-            if (!stale()) {
-                this.postError(e);
-            }
+            this.reportFailure(e, shown());
+        }
+    }
+
+    private async noResponse(shown: boolean): Promise<void> {
+        this.deps.showError("TRLC: No response from the language server.");
+        if (shown) {
+            await this.refresh();
+        }
+    }
+
+    private reportFailure(e: unknown, shown: boolean): void {
+        if (shown) {
+            this.postError(e);
+        } else {
+            this.deps.showError("TRLC: " + (e instanceof Error ? e.message : String(e)));
         }
     }
 

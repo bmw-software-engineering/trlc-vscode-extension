@@ -65,6 +65,7 @@ function model(nodes: PreviewNode[] | null, overrides: Partial<PreviewModel> = {
         reason: null,
         recordTypes: ["T"],
         nodes,
+        version: 1,
         ...overrides,
     };
 }

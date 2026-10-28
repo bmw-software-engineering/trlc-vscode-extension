@@ -64,6 +64,8 @@ export interface MarkdownFieldOptions {
     initial?: string;
     /** Shown above the editor until the next commit (why `initial` was refused). */
     note?: string;
+    /** `initial` was not saved: leaving the field commits it even when unchanged. */
+    unsaved?: boolean;
 }
 
 interface ToolbarAction {
@@ -164,6 +166,8 @@ export interface MarkdownFieldHandle {
     destroy(): void;
     /** Shows (message) or hides (null) the "Not saved" note in place. */
     setNote(message: string | null): void;
+    /** The last commit was not saved: leaving the field commits again even when unchanged. */
+    markUnsaved(): void;
 }
 
 export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions): MarkdownFieldHandle {
@@ -326,7 +330,7 @@ export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions):
                 return;
             }
             editor = created;
-            baseline = created.ctx.get(editorViewCtx).state.doc;
+            baseline = opts.unsaved ? null : created.ctx.get(editorViewCtx).state.doc;
         })
         .catch((err: unknown) => {
             // Fall back to the raw text; the field stays read-only.
@@ -336,6 +340,9 @@ export function mountMarkdownField(el: HTMLElement, opts: MarkdownFieldOptions):
 
     return {
         setNote,
+        markUnsaved(): void {
+            baseline = null;
+        },
         destroy(): void {
             destroyed = true;
             listeners.abort();

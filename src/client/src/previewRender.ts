@@ -231,6 +231,7 @@ button.remove { background: transparent; color: var(--vscode-foreground); }
 .toc-link { cursor: pointer; color: var(--vscode-textLink-foreground); }
 .toc-toggle { background: transparent; color: var(--vscode-foreground); padding: 0 6px; }
 .section-body { margin-left: 12px; padding-left: 12px; border-left: 2px solid var(--vscode-panel-border); }
+.busy .drag-handle { cursor: progress; }
 .drag-handle { cursor: grab; color: var(--vscode-descriptionForeground); margin: 0 4px; user-select: none; }
 .drop-zone { height: 6px; }
 .dragging .drop-zone { background: var(--vscode-editorWidget-border, var(--vscode-panel-border)); opacity: 0.6; }

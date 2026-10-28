@@ -21,7 +21,14 @@
 
 import * as assert from "assert";
 
-import { markdownChanged, markdownCommitValue, normalizeMarkdown, rejectionApplies } from "../previewMarkdown";
+import {
+    markdownChanged,
+    markdownCommitValue,
+    markdownFieldKey,
+    normalizeMarkdown,
+    planMarkdownReuse,
+    rejectionApplies,
+} from "../previewMarkdown";
 
 describe("previewMarkdown", () => {
     describe("normalizeMarkdown", () => {
@@ -97,6 +104,66 @@ describe("previewMarkdown", () => {
 
         it("stops applying once the server value changed", () => {
             assert.strictEqual(rejectionApplies(rejection, "file:///a.trlc", "r1", "description", "new"), false);
+        });
+    });
+
+    describe("markdownFieldKey", () => {
+        const base = { uri: "file:///a.trlc", record: "r", field: "f", value: "x", editable: true, optional: false };
+
+        it("is equal for an unchanged field", () => {
+            assert.strictEqual(markdownFieldKey(base), markdownFieldKey({ ...base }));
+        });
+
+        it("changes with document, record, field, value, editability and optionality", () => {
+            const changes = [
+                { uri: "file:///b.trlc" },
+                { record: "s" },
+                { field: "g" },
+                { value: "y" },
+                { editable: false },
+                { optional: true },
+            ];
+            for (const c of changes) {
+                assert.notStrictEqual(markdownFieldKey({ ...base, ...c }), markdownFieldKey(base), JSON.stringify(c));
+            }
+        });
+
+        it("does not collide when parts contain separators", () => {
+            assert.notStrictEqual(
+                markdownFieldKey({ ...base, record: "a,b", field: "c" }),
+                markdownFieldKey({ ...base, record: "a", field: "b,c" })
+            );
+        });
+    });
+
+    describe("planMarkdownReuse", () => {
+        it("keeps unchanged editors, mounts new fields and destroys the rest", () => {
+            const plan = planMarkdownReuse(
+                [
+                    { key: "a", reusable: true },
+                    { key: "b", reusable: true },
+                    { key: "c", reusable: true },
+                ],
+                ["c", "new", "a"]
+            );
+            assert.deepStrictEqual(plan.reuse, [2, null, 0]);
+            assert.deepStrictEqual(plan.destroy, [1]);
+        });
+
+        it("never reuses a dirty editor", () => {
+            const plan = planMarkdownReuse([{ key: "a", reusable: false }], ["a"]);
+            assert.deepStrictEqual(plan.reuse, [null]);
+            assert.deepStrictEqual(plan.destroy, [0]);
+        });
+
+        it("hands each editor to one field only", () => {
+            const plan = planMarkdownReuse([{ key: "a", reusable: true }], ["a", "a"]);
+            assert.deepStrictEqual(plan.reuse, [0, null]);
+            assert.deepStrictEqual(plan.destroy, []);
+        });
+
+        it("with nothing mounted mounts everything", () => {
+            assert.deepStrictEqual(planMarkdownReuse([], ["a", "b"]), { reuse: [null, null], destroy: [] });
         });
     });
 });

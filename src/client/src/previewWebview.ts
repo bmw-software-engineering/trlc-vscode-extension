@@ -26,9 +26,30 @@
  */
 
 import { canDrop, isNoOpMove } from "./previewDnd";
-import { HostToWebview, ItemRef, PreviewField, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
-import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "./previewFocus";
-import { MarkdownRejection, markdownCommitValue, rejectionApplies } from "./previewMarkdown";
+import {
+    HostToWebview,
+    ItemRef,
+    ModelRef,
+    PreviewField,
+    PreviewModel,
+    PreviewNode,
+    WebviewToHost,
+} from "./previewProtocol";
+import {
+    focusLeavesPreview,
+    intentModelVersion,
+    isIdBasedIntent,
+    selectCommitValue,
+    shouldRenderNow,
+    textCommitValue,
+} from "./previewFocus";
+import {
+    MarkdownRejection,
+    markdownCommitValue,
+    markdownFieldKey,
+    planMarkdownReuse,
+    rejectionApplies,
+} from "./previewMarkdown";
 import { MarkdownFieldHandle, mountMarkdownField } from "./previewMarkdownEditor";
 import { escapeHtml, LastNodes, renderErrorBanner, renderNoDocument, renderPreview } from "./previewRender";
 
@@ -46,10 +67,29 @@ let tocCollapsed = false;
 let dragItem: ItemRef | null = null;
 /** Mouse is down on a drag handle: hold renders so the handle is not detached before dragstart. */
 let pressing = false;
-/** Mounted Markdown editors of the current DOM; destroyed before it is replaced. */
-const mdMounts = new Map<HTMLElement, MarkdownFieldHandle>();
+/** A mounted Markdown editor and what it was mounted for. */
+interface MdMount {
+    handle: MarkdownFieldHandle;
+    /** markdownFieldKey of the field it was mounted for. */
+    key: string;
+    /** Shows other text than the key's value (committed, or a refused edit): never reused. */
+    dirty: boolean;
+}
+/** Mounted Markdown editors of the current DOM; a render keeps the unchanged ones (renderMarkdownFields). */
+const mdMounts = new Map<HTMLElement, MdMount>();
 /** A Markdown edit the server refused: its text stays in the editor until committed again. */
-let rejection: (MarkdownRejection & { value: string; message: string }) | null = null;
+let rejection: (MarkdownRejection & { value: string; message: string; retry: boolean }) | null = null;
+/**
+ * An id-based intent (add record, structure edit) was posted: its ids are
+ * only valid for the model on screen, so structure controls and drags stay
+ * disabled until the next model renders.
+ */
+let busy = false;
+
+/** Buttons that post an id-based intent (or open a form that does). */
+const STRUCTURE_CONTROLS =
+    "button.add-record, button.add-section, button.rename-section, button.dissolve-section, " +
+    "button.create, button.section-ok";
 
 /** Nodes of the tree on screen (the fallback tree when the model has none). */
 function activeNodes(): PreviewNode[] {
@@ -82,10 +122,35 @@ function formOpen(mode: string, sectionId: string): boolean {
 
 function post(msg: WebviewToHost): void {
     vscode.postMessage(msg);
+    if (isIdBasedIntent(msg)) {
+        setBusy();
+    }
+}
+
+/** The document and model version an id-based intent is made from (null: no model). */
+function modelRef(): ModelRef | null {
+    if (currentModel === null) {
+        return null;
+    }
+    const held = pending?.type === "model" ? pending.model : null;
+    return { uri: currentModel.uri, modelVersion: intentModelVersion(currentModel, held) };
+}
+
+/** Disables structure controls and drags until the next model renders. */
+function setBusy(): void {
+    busy = true;
+    root.classList.add("busy");
+    root.querySelectorAll<HTMLButtonElement>(STRUCTURE_CONTROLS).forEach((b) => (b.disabled = true));
+    root.querySelectorAll(".drag-handle[draggable]").forEach((h) => h.removeAttribute("draggable"));
+}
+
+function clearBusy(): void {
+    busy = false;
+    root.classList.remove("busy");
 }
 
 function destroyMarkdownFields(): void {
-    mdMounts.forEach((m) => m.destroy());
+    mdMounts.forEach((m) => m.handle.destroy());
     mdMounts.clear();
 }
 
@@ -111,41 +176,84 @@ function commitMarkdown(el: HTMLElement, md: string): void {
     if (rejection !== null && rejection.record === record && rejection.field === field) {
         rejection = null; // committed again: the server decides anew
     }
-    const value = markdownCommitValue(md, el.dataset.value ?? "", el.dataset.optional === "true");
-    if (value !== undefined) {
-        post({ type: "setField", record, field, value });
+    const mount = mdMounts.get(el);
+    if (mount) {
+        mount.dirty = true; // shows the committed text until the next model says otherwise
     }
+    const value = markdownCommitValue(md, el.dataset.value ?? "", el.dataset.optional === "true");
+    if (value !== undefined && currentModel !== null) {
+        post({ type: "setField", uri: currentModel.uri, record, field, value });
+    }
+}
+
+/** Reuse key of a rendered `.md-field` (before mounting). */
+function markdownKeyOf(el: HTMLElement): string {
+    return markdownFieldKey({
+        uri: currentModel?.uri ?? "",
+        record: recordOf(el) ?? "",
+        field: el.dataset.field ?? "",
+        value: el.dataset.value ?? "",
+        editable: !el.hasAttribute("disabled"),
+        optional: el.dataset.optional === "true",
+    });
 }
 
 /** (Re-)mounts the editor of one `.md-field`, showing a refused edit instead of the server's value. */
 function mountMarkdown(el: HTMLElement): void {
-    mdMounts.get(el)?.destroy();
+    mdMounts.get(el)?.handle.destroy();
     const record = recordOf(el) ?? "";
     const field = el.dataset.field ?? "";
     const serverValue = el.dataset.value ?? "";
     let initial: string | undefined;
     let note: string | undefined;
+    let unsaved = false;
     if (rejection !== null && currentModel !== null) {
         if (rejectionApplies(rejection, currentModel.uri, record, field, serverValue)) {
             initial = rejection.value;
             note = rejection.message;
+            unsaved = rejection.retry;
         } else if (rejection.record === record && rejection.field === field) {
             rejection = null; // the document moved on
         }
     }
-    mdMounts.set(
-        el,
-        mountMarkdownField(el, {
-            editable: !el.hasAttribute("disabled"),
-            onCommit: (md) => commitMarkdown(el, md),
-            initial,
-            note,
-        })
-    );
+    const handle = mountMarkdownField(el, {
+        editable: !el.hasAttribute("disabled"),
+        onCommit: (md) => commitMarkdown(el, md),
+        initial,
+        note,
+        unsaved,
+    });
+    mdMounts.set(el, { handle, key: markdownKeyOf(el), dirty: initial !== undefined });
 }
 
-function mountMarkdownFields(): void {
-    root.querySelectorAll<HTMLElement>(".md-field").forEach(mountMarkdown);
+/** Whether the refused edit belongs to this field (its editor must be re-mounted). */
+function rejectionTargets(el: HTMLElement): boolean {
+    return rejection !== null && rejection.record === recordOf(el) && rejection.field === el.dataset.field;
+}
+
+/**
+ * Mounts the editors of a freshly rendered tree. An editor of the previous
+ * tree whose field is unchanged (same document, record, field, value and
+ * editability) is moved into the new tree instead of being re-created;
+ * editors no new field takes over are destroyed.
+ */
+function renderMarkdownFields(previous: Array<[HTMLElement, MdMount]>): void {
+    const fresh = Array.from(root.querySelectorAll<HTMLElement>(".md-field"));
+    const plan = planMarkdownReuse(
+        previous.map(([el, m]) => ({ key: m.key, reusable: !m.dirty && !rejectionTargets(el) })),
+        fresh.map(markdownKeyOf)
+    );
+    fresh.forEach((el, i) => {
+        const j = plan.reuse[i];
+        if (j === null) {
+            mountMarkdown(el);
+            return;
+        }
+        const [kept, mount] = previous[j];
+        el.replaceWith(kept);
+        mdMounts.set(kept, mount);
+    });
+    plan.destroy.forEach((j) => previous[j][1].handle.destroy());
 }
 
 /** Keeps a refused Markdown edit on screen (Ruling A); other fields ignore it. */
@@ -161,6 +269,7 @@ function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }
         serverValue: f.value ?? "",
         value: msg.value ?? "",
         message: msg.message,
+        retry: msg.retry === true,
     };
     const el = Array.from(mdMounts.keys()).find(
         (e) => e.isConnected && recordOf(e) === msg.record && e.dataset.field === msg.field
@@ -170,7 +279,11 @@ function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }
     }
     if (el.classList.contains("editing")) {
         // Being edited again: keep the editor, just show why the last commit failed.
-        mdMounts.get(el)?.setNote(msg.message);
+        const handle = mdMounts.get(el)?.handle;
+        handle?.setNote(msg.message);
+        if (msg.retry === true) {
+            handle?.markUnsaved(); // leaving the field commits the same text again
+        }
     } else {
         mountMarkdown(el);
     }
@@ -178,16 +291,26 @@ function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }
 
 function render(msg: HostToWebview): void {
     if (msg.type === "error") {
-        // Keep the tree: replace only a previous error banner.
+        // Keep the tree: replace only a previous error banner. A failed
+        // refresh brings no model, so the structure controls come back here.
         root.querySelector(".error-banner")?.remove();
         root.insertAdjacentHTML("afterbegin", renderErrorBanner(msg.message));
+        if (busy) {
+            clearBusy();
+            const editable = currentModel?.editable ?? false;
+            root.querySelectorAll<HTMLButtonElement>(STRUCTURE_CONTROLS).forEach((b) => (b.disabled = !editable));
+            if (editable) {
+                root.querySelectorAll(".drag-handle").forEach((h) => h.setAttribute("draggable", "true"));
+            }
+        }
         return;
     }
     if (msg.type === "editRejected") {
         return; // never queued: handled on arrival by handleEditRejected
     }
-    destroyMarkdownFields();
+    clearBusy();
     if (msg.type === "noDocument") {
+        destroyMarkdownFields();
         currentModel = null;
         lastNodes = null;
         rejection = null;
@@ -197,13 +320,15 @@ function render(msg: HostToWebview): void {
     if (rejection !== null && rejection.uri !== msg.model.uri) {
         rejection = null;
     }
+    const previous = Array.from(mdMounts.entries());
+    mdMounts.clear();
     currentModel = msg.model;
     root.innerHTML = renderPreview(msg.model, lastNodes);
     if (msg.model.nodes !== null) {
         lastNodes = { uri: msg.model.uri, nodes: msg.model.nodes };
     }
     applyToc(root.querySelector(".toc"));
-    mountMarkdownFields();
+    renderMarkdownFields(previous);
 }
 
 function inputHasFocus(): boolean {
@@ -257,16 +382,16 @@ function commit(el: Control): void {
     if (el instanceof HTMLSelectElement) {
         const rendered = Array.from(el.options).find((o) => o.defaultSelected)?.value ?? "";
         const value = selectCommitValue(el.value, rendered);
-        if (value !== undefined) {
-            post({ type: "setField", record, field, value });
+        if (value !== undefined && currentModel !== null) {
+            post({ type: "setField", uri: currentModel.uri, record, field, value });
         }
         return;
     }
-    if (el.value === el.defaultValue) {
+    if (el.value === el.defaultValue || currentModel === null) {
         return; // unchanged from what was rendered
     }
     const value = textCommitValue(el.value, el.dataset.kind ?? "", el.dataset.optional === "true");
-    post({ type: "setField", record, field, value });
+    post({ type: "setField", uri: currentModel.uri, record, field, value });
     // Avoid re-posting the same edit on a following blur.
     el.defaultValue = el.value;
 }
@@ -358,14 +483,15 @@ function showSectionForm(btn: HTMLButtonElement, mode: "insert" | "rename", sect
 function submitSectionForm(button: HTMLButtonElement): void {
     const form = button.closest<HTMLElement>(".add-form");
     const title = (form?.querySelector<HTMLInputElement>("input.section-title")?.value ?? "").trim();
-    if (!form || title === "") {
+    const ref = modelRef();
+    if (!form || title === "" || ref === null) {
         return;
     }
     const sid = form.dataset.sectionId ?? "";
     if (form.dataset.mode === "rename") {
-        post({ type: "renameSection", sectionId: Number(sid), title });
+        post({ type: "renameSection", ...ref, sectionId: Number(sid), title });
     } else {
-        post({ type: "insertSection", sectionId: sid === "" ? null : Number(sid), title });
+        post({ type: "insertSection", ...ref, sectionId: sid === "" ? null : Number(sid), title });
     }
     finishForm(form);
 }
@@ -395,7 +521,7 @@ root.addEventListener("click", (e) => {
     }
     const button = target.closest("button");
     if (button instanceof HTMLButtonElement) {
-        if (button.disabled) {
+        if (button.disabled || (busy && button.matches(STRUCTURE_CONTROLS))) {
             return;
         }
         if (button.classList.contains("remove")) {
@@ -403,8 +529,8 @@ root.addEventListener("click", (e) => {
             const field = button
                 .closest<HTMLElement>(".field")
                 ?.querySelector<HTMLElement>("[data-field]")?.dataset.field;
-            if (record !== null && field !== undefined) {
-                post({ type: "setField", record, field, value: null });
+            if (record !== null && field !== undefined && currentModel !== null) {
+                post({ type: "setField", uri: currentModel.uri, record, field, value: null });
             }
         } else if (button.classList.contains("add-record")) {
             showAddForm(button);
@@ -412,9 +538,10 @@ root.addEventListener("click", (e) => {
             const form = button.closest<HTMLElement>(".add-form");
             const type = form?.querySelector<HTMLSelectElement>("select.new-type")?.value ?? "";
             const name = (form?.querySelector<HTMLInputElement>("input.new-name")?.value ?? "").trim();
-            if (form && type !== "" && name !== "") {
+            const ref = modelRef();
+            if (form && type !== "" && name !== "" && ref !== null) {
                 const sid = form.dataset.sectionId ?? "";
-                post({ type: "addRecord", sectionId: sid === "" ? null : Number(sid), recordType: type, name });
+                post({ type: "addRecord", ...ref, sectionId: sid === "" ? null : Number(sid), recordType: type, name });
                 // Form is done; let a pending model replace it.
                 finishForm(form);
             }
@@ -424,7 +551,10 @@ root.addEventListener("click", (e) => {
             const sid = button.dataset.sectionId ?? "";
             showSectionForm(button, "rename", sid, findSectionTitle(activeNodes(), Number(sid)));
         } else if (button.classList.contains("dissolve-section")) {
-            post({ type: "dissolveSection", sectionId: Number(button.dataset.sectionId) });
+            const ref = modelRef();
+            if (ref !== null) {
+                post({ type: "dissolveSection", ...ref, sectionId: Number(button.dataset.sectionId) });
+            }
         } else if (button.classList.contains("section-ok")) {
             submitSectionForm(button);
         } else if (button.classList.contains("toc-toggle")) {
@@ -492,6 +622,10 @@ root.addEventListener("dragstart", (e) => {
     const t = e.target;
     const handle = t instanceof Element ? t.closest<HTMLElement>(".drag-handle") : null;
     const item = handle ? itemFromHandle(handle) : null;
+    if (busy && handle) {
+        e.preventDefault(); // the ids may change with the pending edit
+        return;
+    }
     if (item === null || !e.dataTransfer) {
         return;
     }
@@ -532,8 +666,9 @@ root.addEventListener("drop", (e) => {
     } else if (zone.dataset.beforeKind === "section") {
         before = { kind: "section", sectionId: Number(beforeId) };
     }
-    if (!isNoOpMove(activeNodes(), dragItem, target, before)) {
-        post({ type: "move", item: dragItem, targetSectionId: target, before });
+    const ref = modelRef();
+    if (ref !== null && !isNoOpMove(activeNodes(), dragItem, target, before)) {
+        post({ type: "move", ...ref, item: dragItem, targetSectionId: target, before });
     }
 });
 
