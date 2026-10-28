@@ -36,6 +36,7 @@ class TestPreview:
             "trlc/previewModel", {"uri": sample_uri}
         )
         assert model.editable is True
+        assert model.version == 1
         node = model.nodes[0]
         assert node.name == "example"
         field = next(f for f in node.fields if f.name == "x")
@@ -63,6 +64,7 @@ class TestPreview:
                 "sectionId": None,
                 "type": "MyRecord",
                 "name": "fresh",
+                "modelVersion": model.version,
             },
         )
         assert hasattr(added, "edit"), added
@@ -88,6 +90,7 @@ class TestPreview:
                 "sectionId": section_id,
                 "type": "MyRecord",
                 "name": "inner",
+                "modelVersion": model.version,
             },
         )
 
@@ -142,7 +145,12 @@ class TestPreviewStructure:
         await wait_for_diagnostics(client, sample_uri)
         result = await client.protocol.send_request_async(
             "trlc/previewInsertSection",
-            {"uri": sample_uri, "sectionId": None, "title": "New"},
+            {
+                "uri": sample_uri,
+                "sectionId": None,
+                "title": "New",
+                "modelVersion": 1,
+            },
         )
         edits = result.edit.documentChanges[0].edits
         assert any('section "New"' in e.newText for e in edits)
@@ -160,6 +168,24 @@ class TestPreviewStructure:
                 "item": {"kind": "bogus"},
                 "targetSectionId": None,
                 "before": None,
+                "modelVersion": 1,
             },
         )
         assert result.error == "Invalid request."
+
+    async def test_outdated_model_version_is_refused(
+        self, client, types_uri, sample_uri
+    ):
+        open_document(client, types_uri, RSL_TEXT)
+        open_document(client, sample_uri, TRLC_TEXT)
+        await wait_for_diagnostics(client, sample_uri)
+        result = await client.protocol.send_request_async(
+            "trlc/previewInsertSection",
+            {
+                "uri": sample_uri,
+                "sectionId": None,
+                "title": "New",
+                "modelVersion": 0,
+            },
+        )
+        assert result.code == "outdated"

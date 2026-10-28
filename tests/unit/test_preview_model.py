@@ -138,6 +138,7 @@ def test_unavailable_model():
     assert m["editable"] is False
     assert m["reason"] == "broken"
     assert m["uri"] == "file:///x.trlc"
+    assert m["version"] is None
 
 
 def _build(tmp_path, rsl, src):

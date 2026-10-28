@@ -20,12 +20,15 @@
 
 """Custom ``trlc/preview*`` requests: feed the client's TRLC preview.
 
-``trlc/previewModel`` returns the model of a parsed file;
-``trlc/previewSetField``/``trlc/previewAddRecord`` return a
-``WorkspaceEdit`` (or an error message) that the client applies, so the
-text buffer stays the single source of truth.
+``trlc/previewModel`` returns the model of a parsed file; the edit
+requests return a ``WorkspaceEdit`` (or an error message) that the client
+applies, so the text buffer stays the single source of truth. Requests
+that address sections by id (add record, the structure requests) carry
+the ``modelVersion`` they were made from and are refused as outdated once
+the parse has moved on.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -66,8 +69,15 @@ _NO_SCOPE = "File is not part of an active TRLC scope."
 _NOT_PARSED = "File has errors that prevent parsing; fix them in the editor."
 _INVALID = "Invalid request."
 _STALE = "Waiting for the parser to catch up with your last edit."
+_OUTDATED = "The preview was out of date; try again."
+_INTERNAL = "Internal error; see the TRLC output channel."
 #: Machine-readable code of the stale rejection: the client retries it.
 STALE_CODE = "stale"
+#: Machine-readable code of an id-based request made from an older model
+#: than the parse (section ids renumber after structural edits).
+OUTDATED_CODE = "outdated"
+
+LOGGER = logging.getLogger(__name__)
 
 #: TRLC kind (``Diagnostic.data["kind"]``, set by Vscode_Message_Handler)
 #: of the errors that lock the preview: syntax and semantic errors. Failing
@@ -109,6 +119,8 @@ class PreviewAddRecordParams:
     # raw JSON object (attribute access by wire key, no snake_case
     # conversion), and keys that are absent are simply missing.
     sectionId: Optional[int] = None  # pylint: disable=invalid-name
+    #: ``version`` of the model the request was made from (required).
+    modelVersion: Optional[int] = None  # pylint: disable=invalid-name
 
 
 @dataclass
@@ -225,23 +237,40 @@ def _item_ref(raw) -> ItemRef:
 
 
 def _structure_request(ls, params, build) -> dict:
-    """Shared path of the structure requests.
+    """Shared path of the id-based requests (structure and add-record).
 
-    *build(structure, content)* reads the remaining params and returns
-    the edits; it may raise :class:`_InvalidRequest` or
+    *params.modelVersion* is the ``version`` of the model the request was
+    made from: section ids are ordinals that renumber after structural
+    edits, so a request made from another version is refused as outdated.
+    *build(structure, parsed)* reads the remaining params and returns the
+    edits; it may raise :class:`_InvalidRequest` or
     :class:`PreviewEditError`.
     """
-    uri = getattr(params, "uri", None)
-    if not isinstance(uri, str):
-        return _error(_INVALID)
-    target, failure = _resolve(ls, uri)
-    if target is None:
-        return _error(*failure)
-    if target.locked:
-        return _error(_NOT_PARSED)
-    parsed = target.parsed
     try:
-        edits = build(scan_file(parsed.lexer.tokens), parsed.lexer.content)
+        return _id_based_request(ls, params, build)
+    # pylint: disable-next=broad-exception-caught  # answer with a message; the trace goes to the log
+    except Exception:
+        LOGGER.exception("Preview request failed")
+        return _error(_INTERNAL)
+
+
+def _id_based_request(ls, params, build) -> dict:
+    uri = getattr(params, "uri", None)
+    try:
+        if not isinstance(uri, str):
+            raise _InvalidRequest()
+        model_version = _int_or_none(params, "modelVersion")
+        target, failure = _resolve(ls, uri)
+        if target is None:
+            return _error(*failure)
+        if model_version != target.version:
+            failure = (_OUTDATED, OUTDATED_CODE)
+        elif target.locked:
+            failure = (_NOT_PARSED, None)
+        if failure is not None:
+            return _error(*failure)
+        parsed = target.parsed
+        edits = build(scan_file(parsed.lexer.tokens), parsed)
     except _InvalidRequest:
         return _error(_INVALID)
     except PreviewEditError as e:
@@ -252,14 +281,17 @@ def _structure_request(ls, params, build) -> dict:
 def _model(ls, uri: str, target: _Target) -> dict:
     markdown = ls.get_config_for_uri(uri).preview_markdown_components
     if not target.locked:
-        return build_preview_model(uri, target.parsed, markdown)
-    try:
         model = build_preview_model(uri, target.parsed, markdown)
-    # pylint: disable-next=broad-exception-caught  # error-recovered ASTs can be arbitrarily odd; degrade to "unavailable"
-    except Exception:
-        return unavailable_model(uri, _NOT_PARSED)
-    model["editable"] = False
-    model["reason"] = _NOT_PARSED
+    else:
+        try:
+            model = build_preview_model(uri, target.parsed, markdown)
+        # pylint: disable-next=broad-exception-caught  # error-recovered ASTs can be arbitrarily odd; degrade to "unavailable"
+        except Exception:
+            return unavailable_model(uri, _NOT_PARSED)
+        model["editable"] = False
+        model["reason"] = _NOT_PARSED
+    # The buffer version the parse matches: id-based requests send it back.
+    model["version"] = target.version
     return model
 
 
@@ -300,33 +332,27 @@ def register(server: "ServerProtocol") -> None:
     @server.feature(PREVIEW_ADD_RECORD_METHOD)
     def preview_add_record(ls, params: PreviewAddRecordParams):
         """Edit that adds a record, or ``{"error": ...}``."""
-        target, failure = _resolve(ls, params.uri)
-        if target is None:
-            return _error(*failure)
-        if target.locked:
-            return _error(_NOT_PARSED)
-        parsed = target.parsed
-        try:
-            edits = add_record_edits(
-                scan_file(parsed.lexer.tokens),
+
+        def build(structure, parsed):
+            return add_record_edits(
+                structure,
                 parsed.lexer.content,
                 parsed.cu,
                 getattr(params, "sectionId", None),
                 params.type,
                 params.name,
             )
-        except PreviewEditError as e:
-            return _error(str(e))
-        return _edit_result(params.uri, target.version, edits)
+
+        return _structure_request(ls, params, build)
 
     @server.feature(PREVIEW_INSERT_SECTION_METHOD)
     def preview_insert_section(ls, params):
         """Edit that inserts a section, or ``{"error": ...}``."""
 
-        def build(structure, content):
+        def build(structure, parsed):
             return insert_section_edits(
                 structure,
-                content,
+                parsed.lexer.content,
                 _int_or_none(params, "sectionId"),
                 _title(params),
             )
@@ -337,12 +363,12 @@ def register(server: "ServerProtocol") -> None:
     def preview_rename_section(ls, params):
         """Edit that renames a section, or ``{"error": ...}``."""
 
-        def build(structure, content):
+        def build(structure, parsed):
             section_id = _int_or_none(params, "sectionId")
             if section_id is None:
                 raise _InvalidRequest()
             return rename_section_edits(
-                structure, content, section_id, _title(params)
+                structure, parsed.lexer.content, section_id, _title(params)
             )
 
         return _structure_request(ls, params, build)
@@ -351,11 +377,13 @@ def register(server: "ServerProtocol") -> None:
     def preview_dissolve_section(ls, params):
         """Edit that dissolves a section, or ``{"error": ...}``."""
 
-        def build(structure, content):
+        def build(structure, parsed):
             section_id = _int_or_none(params, "sectionId")
             if section_id is None:
                 raise _InvalidRequest()
-            return dissolve_section_edits(structure, content, section_id)
+            return dissolve_section_edits(
+                structure, parsed.lexer.content, section_id
+            )
 
         return _structure_request(ls, params, build)
 
@@ -363,11 +391,13 @@ def register(server: "ServerProtocol") -> None:
     def preview_move(ls, params):
         """Edit that moves a record/section, or ``{"error": ...}``."""
 
-        def build(structure, content):
+        def build(structure, parsed):
             item = _item_ref(getattr(params, "item", None))
             target_id = _int_or_none(params, "targetSectionId")
             raw_before = getattr(params, "before", None)
             before = None if raw_before is None else _item_ref(raw_before)
-            return move_edits(structure, content, item, target_id, before)
+            return move_edits(
+                structure, parsed.lexer.content, item, target_id, before
+            )
 
         return _structure_request(ls, params, build)

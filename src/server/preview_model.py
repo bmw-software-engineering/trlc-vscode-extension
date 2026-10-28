@@ -44,6 +44,7 @@ def unavailable_model(uri: str, reason: str) -> dict:
         "reason": reason,
         "recordTypes": [],
         "nodes": None,
+        "version": None,
     }
 
 
@@ -154,4 +155,6 @@ def build_preview_model(
         "reason": None,
         "recordTypes": sorted(visible_record_types(cu)),
         "nodes": roots,
+        # Set by the handler: the buffer version the parse matches.
+        "version": None,
     }

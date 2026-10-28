@@ -96,6 +96,15 @@ class TestPreviewModel:
         model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
         assert model["nodes"][0]["name"] == "example"
 
+    def test_model_carries_the_buffer_version(
+        self, fake_ls, handlers, trlc_path
+    ):
+        model_fn, _, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_versions[uri] = 42  # pylint: disable=protected-access
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["version"] == 42
+
     def test_model_unavailable_for_unparsed_file(
         self, fake_ls, handlers, trlc_path
     ):
@@ -173,7 +182,11 @@ class TestPreviewAddRecord:
         ok = add_fn(
             fake_ls,
             preview_mod.PreviewAddRecordParams(
-                uri=uri, sectionId=None, type="MyRecord", name="fresh"
+                uri=uri,
+                sectionId=None,
+                type="MyRecord",
+                name="fresh",
+                modelVersion=1,
             ),
         )
         assert "edit" in ok
@@ -182,7 +195,11 @@ class TestPreviewAddRecord:
         dup = add_fn(
             fake_ls,
             preview_mod.PreviewAddRecordParams(
-                uri=uri, sectionId=None, type="MyRecord", name="example"
+                uri=uri,
+                sectionId=None,
+                type="MyRecord",
+                name="example",
+                modelVersion=1,
             ),
         )
         assert "error" in dup
@@ -211,7 +228,11 @@ class TestPreviewLockRule:
         added = add_fn(
             fake_ls,
             preview_mod.PreviewAddRecordParams(
-                uri=uri, sectionId=None, type="Rec", name="fresh"
+                uri=uri,
+                sectionId=None,
+                type="Rec",
+                name="fresh",
+                modelVersion=1,
             ),
         )
         assert added == {"error": NOT_PARSED}
@@ -273,8 +294,16 @@ SECTIONED = (
 
 
 def _call(fake_ls, method, **params):
+    """Call *method*; ``modelVersion`` defaults to the stub's version 1,
+    ``modelVersion=_MISSING`` leaves it out."""
     preview_mod.register(fake_ls)
+    params.setdefault("modelVersion", 1)
+    if params["modelVersion"] is _MISSING:
+        del params["modelVersion"]
     return fake_ls.get_handler(method)(fake_ls, SimpleNamespace(**params))
+
+
+_MISSING = object()
 
 
 def _edits(result):
@@ -416,6 +445,72 @@ class TestPreviewStructure:
             title="New",
         )
         assert result["code"] == "stale"
+
+    @pytest.mark.parametrize(
+        "method,params",
+        [
+            (
+                preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+                {"sectionId": None, "title": "New"},
+            ),
+            (
+                preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+                {"sectionId": 0, "title": "Z"},
+            ),
+            (preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD, {"sectionId": 1}),
+            (
+                preview_mod.PREVIEW_MOVE_METHOD,
+                {
+                    "item": SimpleNamespace(kind="record", name="r"),
+                    "targetSectionId": 1,
+                    "before": None,
+                },
+            ),
+            (
+                preview_mod.PREVIEW_ADD_RECORD_METHOD,
+                {"sectionId": 1, "type": "Rec", "name": "fresh"},
+            ),
+        ],
+    )
+    def test_model_version_must_match(self, fake_ls, uri, method, params):
+        # pylint: disable-next=protected-access
+        fake_ls._uri_versions[uri] = 5
+        assert _call(fake_ls, method, uri=uri, modelVersion=4, **params) == {
+            "error": "The preview was out of date; try again.",
+            "code": "outdated",
+        }
+        assert _edits(
+            _call(fake_ls, method, uri=uri, modelVersion=5, **params)
+        )
+
+    @pytest.mark.parametrize("version", [_MISSING, "1", True, 1.0])
+    def test_missing_or_invalid_model_version(self, fake_ls, uri, version):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+            modelVersion=version,
+        )
+        assert result == {"error": "Invalid request."}
+
+    def test_unexpected_exception_is_reported(
+        self, fake_ls, uri, monkeypatch, caplog
+    ):
+        def boom(*_args):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(preview_mod, "dissolve_section_edits", boom)
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+        )
+        assert result == {
+            "error": "Internal error; see the TRLC output channel."
+        }
+        assert "boom" in caplog.text
 
     def test_edit_error_is_reported(self, fake_ls, uri):
         result = _call(
