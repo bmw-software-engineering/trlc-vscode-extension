@@ -30,8 +30,10 @@ from trlc.trlc import Source_Manager
 
 from server.preview_scan import scan_file
 from server.preview_structure import (
+    ItemRef,
     dissolve_section_edits,
     insert_section_edits,
+    move_edits,
     rename_section_edits,
     verify_structure_edit,
 )
@@ -406,3 +408,319 @@ def test_verify_rejects_unbalanced_braces():
 def test_verify_rejects_lex_error():
     with pytest.raises(PreviewEditError):
         verify_structure_edit(BASE, BASE + '"unterminated\n')
+
+
+def test_verify_accepts_moved_record():
+    moved = (
+        "package Types\n"
+        'section "A" {\n'
+        "    MyRecord r2 { x = 3 y = 4 }\n"
+        "    MyRecord r1 {\n"
+        "        x = 1\n"
+        "        y = 2\n"
+        "    }\n"
+        "}\n"
+    )
+    verify_structure_edit(BASE, moved)
+
+
+# --- move -------------------------------------------------------------------
+
+
+def _rec(name):
+    return ItemRef("record", name=name)
+
+
+def _sec(section_id):
+    return ItemRef("section", section_id=section_id)
+
+
+def test_move_record_into_section(tmp_path):
+    new = _run(tmp_path, BASE, move_edits, _rec("r2"), 0, None)
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "    MyRecord r1 {\n"
+        "        x = 1\n"
+        "        y = 2\n"
+        "    }\n"
+        "    MyRecord r2 { x = 3 y = 4 }\n"
+        "}\n"
+    )
+    old = _check(tmp_path, BASE)
+    res = _check(tmp_path, new)
+    assert res["r1"] == old["r1"]
+    assert res["r2"] == (("A",),) + old["r2"][1:]
+
+
+TWO = """\
+package Types
+section "A" {
+    MyRecord r0 { x = 0 y = 0 }
+    MyRecord r1 { x = 1 y = 2 }
+}
+"""
+
+
+def test_move_record_reorder_within_section(tmp_path):
+    new = _run(tmp_path, TWO, move_edits, _rec("r1"), 0, _rec("r0"))
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "    MyRecord r1 { x = 1 y = 2 }\n"
+        "    MyRecord r0 { x = 0 y = 0 }\n"
+        "}\n"
+    )
+    assert _check(tmp_path, new) == _check(tmp_path, TWO)
+    back = _run(tmp_path, new, move_edits, _rec("r1"), 0, None)
+    assert back == TWO
+
+
+def test_move_record_to_file_level(tmp_path):
+    new = _run(tmp_path, BASE, move_edits, _rec("r1"), None, _rec("r2"))
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "}\n"
+        "MyRecord r1 {\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "}\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+    )
+    assert _check(tmp_path, new)["r1"] == ((), 1, 2, None)
+
+    end = _run(tmp_path, BASE, move_edits, _rec("r1"), None, None)
+    assert end == (
+        "package Types\n"
+        'section "A" {\n'
+        "}\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+        "\n"
+        "MyRecord r1 {\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "}\n"
+    )
+    assert _check(tmp_path, end)["r1"] == ((), 1, 2, None)
+
+
+def test_move_record_carries_leading_comment(tmp_path):
+    content = (
+        "package Types\n"
+        'section "A" {\n'
+        "    // about r1\n"
+        "    /* more */\n"
+        "    MyRecord r1 { x = 1 y = 2 } // r1\n"
+        "}\n"
+        "\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+    )
+    new = _run(tmp_path, content, move_edits, _rec("r1"), None, _rec("r2"))
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "}\n"
+        "\n"
+        "// about r1\n"
+        "/* more */\n"
+        "MyRecord r1 { x = 1 y = 2 } // r1\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+    )
+    assert _check(tmp_path, new)["r1"] == ((), 1, 2, None)
+
+
+SHARED = """\
+package Types
+MyRecord r0 { x = 0 y = 0 } MyRecord r1 { x = 1 y = 2 }
+section "A" {
+    MyRecord r2 { x = 3 y = 4 }
+}
+"""
+
+
+def test_move_record_sharing_a_line(tmp_path):
+    new = _run(tmp_path, SHARED, move_edits, _rec("r1"), 0, None)
+    assert new == (
+        "package Types\n"
+        "MyRecord r0 { x = 0 y = 0 }\n"
+        'section "A" {\n'
+        "    MyRecord r2 { x = 3 y = 4 }\n"
+        "    MyRecord r1 { x = 1 y = 2 }\n"
+        "}\n"
+    )
+    assert _check(tmp_path, new)["r1"] == (("A",), 1, 2, None)
+
+    new = _run(tmp_path, SHARED, move_edits, _rec("r0"), 0, _rec("r2"))
+    assert new == (
+        "package Types\n"
+        "MyRecord r1 { x = 1 y = 2 }\n"
+        'section "A" {\n'
+        "    MyRecord r0 { x = 0 y = 0 }\n"
+        "    MyRecord r2 { x = 3 y = 4 }\n"
+        "}\n"
+    )
+
+    # Inserting before an item that does not start its line splits it.
+    new = _run(tmp_path, SHARED, move_edits, _rec("r2"), None, _rec("r1"))
+    assert new == (
+        "package Types\n"
+        "MyRecord r0 { x = 0 y = 0 }\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+        "MyRecord r1 { x = 1 y = 2 }\n"
+        'section "A" {\n'
+        "}\n"
+    )
+    assert _check(tmp_path, new)["r2"] == ((), 3, 4, None)
+
+
+def test_move_section_with_content(tmp_path):
+    new = _run(tmp_path, NESTED, move_edits, _sec(1), None, _sec(0))
+    assert new == (
+        "package Types\n"
+        'section "B" {\n'
+        "    MyRecord r1 {\n"
+        "        x = 1\n"
+        "        y = 2\n"
+        "    }\n"
+        '    section "C" {\n'
+        "        MyRecord r2 { x = 3 y = 4 }\n"
+        "    }\n"
+        "}\n"
+        'section "A" {\n'
+        "    MyRecord r0 { x = 0 y = 0 }\n"
+        "}\n"
+    )
+    assert _sections(tmp_path, new) == [("B", 1), ("C", 2), ("A", 1)]
+    old = _check(tmp_path, NESTED)
+    res = _check(tmp_path, new)
+    assert res["r0"] == old["r0"]
+    assert res["r1"] == (("B",),) + old["r1"][1:]
+    assert res["r2"] == (("B", "C"),) + old["r2"][1:]
+
+    # C into A, before r0: one level up instead of two levels deep.
+    new = _run(tmp_path, NESTED, move_edits, _sec(2), 0, _rec("r0"))
+    assert new.startswith(
+        "package Types\n"
+        'section "A" {\n'
+        '    section "C" {\n'
+        "        MyRecord r2 { x = 3 y = 4 }\n"
+        "    }\n"
+        "    MyRecord r0 { x = 0 y = 0 }\n"
+    )
+    res = _check(tmp_path, new)
+    assert res["r2"] == (("A", "C"),) + old["r2"][1:]
+    assert res["r1"] == old["r1"]
+
+
+def test_move_section_into_descendant_rejected(tmp_path):
+    for target in (0, 1, 2):
+        with pytest.raises(PreviewEditError):
+            _run(tmp_path, NESTED, move_edits, _sec(0), target, None)
+    with pytest.raises(PreviewEditError):
+        _run(tmp_path, NESTED, move_edits, _sec(1), 2, None)
+
+
+def test_move_to_same_position_is_noop(tmp_path):
+    _, parsed = _parse(tmp_path, NESTED)
+    structure = scan_file(parsed.lexer.tokens)
+    content = parsed.lexer.content
+    for item, target, before in (
+        (_rec("r0"), 0, _sec(1)),
+        (_rec("r0"), 0, _rec("r0")),
+        (_sec(1), 0, None),
+        (_sec(0), None, None),
+        (_sec(2), 1, None),
+        (_rec("r1"), 1, _sec(2)),
+    ):
+        assert not move_edits(structure, content, item, target, before)
+
+
+def test_move_before_item_not_in_target_rejected(tmp_path):
+    for item, target, before in (
+        (_rec("r0"), None, _rec("r1")),  # r1 is in B, not at file level
+        (_rec("r2"), 0, _rec("r1")),  # r1 is in B, not A
+        (_rec("r2"), 0, _sec(2)),  # C is in B, not A
+        (_rec("nope"), 0, None),  # unknown item
+        (_sec(9), 0, None),  # unknown section
+        (_rec("r0"), 9, None),  # unknown target
+        (_rec("r0"), 0, _rec("nope")),  # unknown before
+        (ItemRef("other", name="r0"), 0, None),  # unknown kind
+    ):
+        with pytest.raises(PreviewEditError):
+            _run(tmp_path, NESTED, move_edits, item, target, before)
+
+
+def test_move_unclosed_rejected(tmp_path):
+    content = (
+        "package Types\n"
+        "MyRecord r0 { x = 0 y = 0 }\n"
+        'section "A" {\n'
+        "    MyRecord r1 { x = 1 y = 2 }\n"
+    )
+    _, parsed = _parse(tmp_path, content)
+    structure = scan_file(parsed.lexer.tokens)
+    with pytest.raises(PreviewEditError):
+        move_edits(structure, content, _rec("r0"), 0, None)
+    with pytest.raises(PreviewEditError):
+        move_edits(structure, content, _sec(0), None, _rec("r0"))
+
+
+def test_move_record_with_multiline_string_shifts_it(tmp_path):
+    content = (
+        "package Types\n"
+        'section "A" {\n'
+        "}\n"
+        "MyRecord r1 {\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "    text = '''\n"
+        "        a\n"
+        "          b\n"
+        "    '''\n"
+        "}\n"
+    )
+    new = _run(tmp_path, content, move_edits, _rec("r1"), 0, None)
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "    MyRecord r1 {\n"
+        "        x = 1\n"
+        "        y = 2\n"
+        "        text = '''\n"
+        "            a\n"
+        "              b\n"
+        "        '''\n"
+        "    }\n"
+        "}\n"
+    )
+    old = _check(tmp_path, content)["r1"]
+    assert _check(tmp_path, new)["r1"] == (("A",),) + old[1:]
+
+
+def test_move_crlf(tmp_path):
+    content = BASE.replace("\n", "\r\n")
+    new = _run(tmp_path, content, move_edits, _rec("r1"), None, None)
+    assert new == (
+        "package Types\n"
+        'section "A" {\n'
+        "}\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+        "\n"
+        "MyRecord r1 {\n"
+        "    x = 1\n"
+        "    y = 2\n"
+        "}\n"
+    ).replace("\n", "\r\n")
+    back = _run(tmp_path, new, move_edits, _rec("r1"), 0, None)
+    assert back == (
+        "package Types\n"
+        'section "A" {\n'
+        "    MyRecord r1 {\n"
+        "        x = 1\n"
+        "        y = 2\n"
+        "    }\n"
+        "}\n"
+        "MyRecord r2 { x = 3 y = 4 }\n"
+        "\n"
+    ).replace("\n", "\r\n")
