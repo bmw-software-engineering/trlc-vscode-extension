@@ -231,6 +231,7 @@ waiting for the parser) and inputs are disabled, when:
 |--------|---------|
 | File is not part of an active TRLC scope. | The file is outside the current parse scope. |
 | File has errors that prevent parsing; fix them in the editor. | The file has a syntax or type error (for example `x = = 1`, an unclosed `section`, or a value of the wrong type). The records stay visible but cannot be edited until the error is fixed. |
+| Records this file uses are declared in .trlc files that are not open. ... | Parse mode `workspace` parses only open `.trlc` files, and a record this file references (reported as `unknown symbol`) is declared in a closed one. The banner lists each such file with an **Open** button: it opens the file as a background tab (the preview stays on your file), and editing resumes after the reparse. Setting `Trlc Server > Parse Mode` to `repo` avoids this for good. |
 | Waiting for the parser to catch up with your last edit. | A short pause after typing; editing resumes automatically. |
 
 Failing `checks` (user errors and warnings) and records that miss a
@@ -239,6 +240,12 @@ from the preview.
 
 Errors from a preview edit (for example an invalid integer) are shown as a
 banner above the content; the content stays visible.
+
+In the text editor, the same `unknown symbol` error offers a quick fix
+(light bulb, `Ctrl+.`) **Open <file> (declares <name>)** that opens the
+declaring file as a background tab. The files are found by a plain text
+search for a declaration `Type name {` in the right package, so in rare
+cases (for example an unusual layout) a file may be missed.
 
 ## Commands
 

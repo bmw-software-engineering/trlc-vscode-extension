@@ -23,7 +23,11 @@
 
 from .conftest import RSL_TEXT, TRLC_TEXT
 from .content import INVALID_TRLC_TEXT
-from .lsp_helpers import open_document, wait_for_diagnostics
+from .lsp_helpers import (
+    open_document,
+    reference_to_closed_record,
+    wait_for_diagnostics,
+)
 
 
 class TestPreview:
@@ -154,6 +158,24 @@ class TestPreview:
         assert result.edit.documentChanges[0].edits[0].newText == (
             '["a", "b c"]'
         )
+
+    async def test_symbol_in_unopened_file_names_the_file(
+        self, client, workspace, types_uri, sample_uri
+    ):
+        # WORKSPACE mode parses only open .trlc files: a record declared
+        # in a closed one is unknown, and the preview names that file.
+        async with reference_to_closed_record(
+            client, workspace, "unopened_decl", types_uri, sample_uri
+        ):
+            model = await client.protocol.send_request_async(
+                "trlc/previewModel", {"uri": sample_uri}
+            )
+        assert model.editable is False
+        assert "not open" in model.reason
+        (entry,) = model.openFiles
+        assert entry.label == "unopened_decl/far.trlc"
+        assert entry.symbols == ["far_away"]
+        assert entry.uri.endswith("/unopened_decl/far.trlc")
 
     async def test_missing_required_value_stays_editable(
         self, client, types_uri, sample_uri

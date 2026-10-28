@@ -29,7 +29,7 @@ the parse has moved on.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
 from lsprotocol.converters import get_converter
@@ -39,6 +39,7 @@ from lsprotocol.types import (
     WorkspaceEdit,
 )
 
+from ..missing_symbols import declaring_files, scope_label
 from ..parse_guard import normalize_fs_path
 from ..preview_edits import (
     PreviewEditError,
@@ -55,7 +56,7 @@ from ..preview_structure import (
     rename_section_edits,
 )
 from ..server_protocol import ServerProtocol
-from ..token_utils import path_from_uri
+from ..token_utils import path_from_uri, uri_from_file
 
 PREVIEW_MODEL_METHOD = "trlc/previewModel"
 PREVIEW_SET_FIELD_METHOD = "trlc/previewSetField"
@@ -67,6 +68,11 @@ PREVIEW_MOVE_METHOD = "trlc/previewMove"
 
 _NO_SCOPE = "File is not part of an active TRLC scope."
 _NOT_PARSED = "File has errors that prevent parsing; fix them in the editor."
+_NOT_OPEN = (
+    "Records this file uses are declared in .trlc files that are not "
+    'open. In parse mode "workspace" only open .trlc files are parsed: '
+    'open them, or set trlcServer.parseMode to "repo".'
+)
 _INVALID = "Invalid request."
 _STALE = "Waiting for the parser to catch up with your last edit."
 _OUTDATED = "The preview was out of date; try again."
@@ -133,8 +139,13 @@ class _Target:
     parsed: Any
     #: Version of the live buffer the parse matches (None: not open).
     version: Optional[int]
-    #: True if the parse has errors that lock the preview.
-    locked: bool
+    #: The errors of the file that lock the preview (none: editable).
+    locking: list = field(default_factory=list)
+
+    @property
+    def locked(self) -> bool:
+        """True if the parse has errors that lock the preview."""
+        return bool(self.locking)
 
 
 def _locks(diag) -> bool:
@@ -144,14 +155,15 @@ def _locks(diag) -> bool:
     )
 
 
-def _has_locking_error(diagnostics: dict, path: str) -> bool:
-    """True if *diagnostics* hold a locking error for the file at *path*."""
-    for key, diags in diagnostics.items():
-        if normalize_fs_path(path_from_uri(key)) == path and any(
-            _locks(d) for d in diags
-        ):
-            return True
-    return False
+def _locking_errors(diagnostics: dict, path: str) -> list:
+    """The errors in *diagnostics* that lock the file at *path*."""
+    return [
+        d
+        for key, diags in diagnostics.items()
+        if normalize_fs_path(path_from_uri(key)) == path
+        for d in diags
+        if _locks(d)
+    ]
 
 
 def _resolve(ls, uri: str):
@@ -173,8 +185,8 @@ def _resolve(ls, uri: str):
         if parsed.lexer.content != document.source:
             return None, (_STALE, STALE_CODE)
         version = document.version
-    locked = _has_locking_error(snapshot.diagnostics, path)
-    return _Target(parsed, version, locked), None
+    locking = _locking_errors(snapshot.diagnostics, path)
+    return _Target(parsed, version, locking), None
 
 
 def _error(reason: str, code: Optional[str] = None) -> dict:
@@ -281,6 +293,21 @@ def _id_based_request(ls, params, build) -> dict:
     return _edit_result(uri, target.version, edits)
 
 
+def _unopened_declarations(ls, uri: str, target: _Target) -> list:
+    """``openFiles`` entries for unknown symbols declared in closed files."""
+    found = declaring_files(
+        ls, uri, target.parsed.lexer.content, target.locking
+    )
+    return [
+        {
+            "uri": uri_from_file(path),
+            "label": scope_label(ls, uri, path),
+            "symbols": names,
+        }
+        for path, names in found.items()
+    ]
+
+
 def _model(ls, uri: str, target: _Target) -> dict:
     markdown = ls.get_config_for_uri(uri).preview_markdown_components
     if not target.locked:
@@ -293,6 +320,10 @@ def _model(ls, uri: str, target: _Target) -> dict:
             return unavailable_model(uri, _NOT_PARSED)
         model["editable"] = False
         model["reason"] = _NOT_PARSED
+        open_files = _unopened_declarations(ls, uri, target)
+        if open_files:
+            model["reason"] = _NOT_OPEN
+            model["openFiles"] = open_files
     # The buffer version the parse matches: id-based requests send it back.
     model["version"] = target.version
     return model

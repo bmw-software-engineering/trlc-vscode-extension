@@ -570,6 +570,8 @@ root.addEventListener("click", (e) => {
             if (record !== null && field !== undefined && currentModel !== null) {
                 post({ type: "setField", uri: currentModel.uri, record, field, value: null });
             }
+        } else if (button.classList.contains("open-file")) {
+            post({ type: "openFile", uri: button.dataset.uri ?? "" });
         } else if (button.classList.contains("array-add")) {
             const owner = arrayFieldOf(button);
             if (owner) {

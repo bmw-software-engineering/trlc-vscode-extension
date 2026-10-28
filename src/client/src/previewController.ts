@@ -40,6 +40,8 @@ export interface PreviewDeps {
     applyEdit(lspWorkspaceEdit: unknown): Promise<boolean>;
     showError(message: string): void;
     reveal(uri: string, line: number): void;
+    /** Opens `target` as a background editor tab, keeping `keep` in front. */
+    openFile(target: string, keep: string): Promise<void>;
 }
 
 /**
@@ -59,7 +61,7 @@ export const SWITCHED_MESSAGE = "TRLC: The preview switched files; the action wa
 export const BUSY_MESSAGE = "TRLC: The parser was busy; the edit was not saved. Try again.";
 const APPLY_FAILED_MESSAGE = "TRLC: Could not apply edit.";
 
-type IdBasedMessage = Exclude<WebviewToHost, { type: "ready" | "reveal" | "setField" }>;
+type IdBasedMessage = Exclude<WebviewToHost, { type: "ready" | "reveal" | "setField" | "openFile" }>;
 
 function isStale(result: EditResult | null | undefined): boolean {
     return result !== null && result !== undefined && "error" in result && result.code === STALE_CODE;
@@ -94,6 +96,8 @@ export class PreviewController {
     private editQueue: Promise<void> = Promise.resolve();
     /** Set while a stale-rejected edit waits for the next editable model. */
     private modelWaiter: ((retry: boolean) => void) | undefined;
+    /** The `openFiles` of the model on screen: the only files "openFile" may open. */
+    private openable = new Set<string>();
 
     constructor(
         private readonly deps: PreviewDeps,
@@ -129,6 +133,7 @@ export class PreviewController {
                 this.post({ type: "error", message: "TRLC: No preview data from the language server." });
                 return;
             }
+            this.openable = new Set((model.openFiles ?? []).map((f) => f.uri));
             this.post({ type: "model", model });
             if (model.editable) {
                 // The server has caught up with the buffer: retry a stale edit.
@@ -159,6 +164,11 @@ export class PreviewController {
                 break;
             case "reveal":
                 this.deps.reveal(uri, msg.line);
+                break;
+            case "openFile":
+                if (this.openable.has(msg.uri)) {
+                    await this.deps.openFile(msg.uri, uri);
+                }
                 break;
             case "setField":
                 // Versioned against msg.uri: still valid after the preview

@@ -40,6 +40,11 @@ All notable changes to the TRLC VSCode Extension are documented here.
   list elements suggest the matching record names while typing (the
   field's type and its subtypes, from the package and its imports).
   Components typed as a union (`[A, B]`) are now edited as references.
+- **Hint for records in closed files** — In parse mode `workspace` only
+  open `.trlc` files are parsed, so a record declared in a closed file is
+  an `unknown symbol`. The preview now names the declaring file(s) with an
+  **Open** button instead of the generic read-only banner, and the editor
+  offers the same as a quick fix. The file opens as a background tab.
 
 ---
 

@@ -71,6 +71,7 @@ function model(nodes: PreviewNode[] | null, overrides: Partial<PreviewModel> = {
         nodes,
         version: 1,
         references: {},
+        openFiles: [],
         ...overrides,
     };
 }
@@ -160,6 +161,20 @@ describe("previewRender", () => {
         );
         assert.ok(!html.includes("array-value"));
         assert.ok(html.includes('class="array-add"'));
+    });
+
+    it("a locked model lists closed files to open, with an enabled button", () => {
+        const html = renderPreview(
+            model(null, {
+                editable: false,
+                reason: "not open",
+                openFiles: [{ uri: "file:///w/sys/tsc.trlc", label: "sys/<tsc>.trlc", symbols: ["a", "b"] }],
+            }),
+            null
+        );
+        assert.ok(html.includes("<code>a</code>, <code>b</code>"));
+        assert.ok(html.includes("sys/&lt;tsc&gt;.trlc"));
+        assert.ok(html.includes('<button class="open-file" data-uri="file:///w/sys/tsc.trlc">Open &lt;tsc&gt;.trlc</button>'));
     });
 
     it("reference fields suggest the records of their type", () => {

@@ -24,6 +24,7 @@ import { randomBytes } from "crypto";
 import { commands, ExtensionContext, Range, TextEditor, Uri, ViewColumn, WebviewPanel, window, workspace } from "vscode";
 import { LanguageClient, WorkspaceEdit as LspWorkspaceEdit } from "vscode-languageclient/node";
 
+import { isOpeningInBackground, openInBackground } from "./openInBackground";
 import { editMatchesVersions, PreviewController } from "./previewController";
 import { HostToWebview, WebviewToHost } from "./previewProtocol";
 import { previewShellHtml } from "./previewRender";
@@ -63,6 +64,7 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
                 return workspace.applyEdit(converted);
             },
             showError: (message) => void window.showErrorMessage(message),
+            openFile: (target, keep) => openInBackground(Uri.parse(target), Uri.parse(keep)),
             reveal: (uri, line) => {
                 void window.showTextDocument(Uri.parse(uri), {
                     viewColumn: ViewColumn.One,
@@ -125,7 +127,8 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
         { dispose: () => panel?.dispose() },
         window.onDidChangeActiveTextEditor((editor) => {
             // Ignores undefined (e.g. webview focused) and non-TRLC editors.
-            if (panel && isTrlcEditor(editor)) {
+            // A file opened in the background (openFile) is not followed.
+            if (panel && isTrlcEditor(editor) && !isOpeningInBackground(editor.document.uri.toString())) {
                 follow(editor.document.uri);
             }
         }),

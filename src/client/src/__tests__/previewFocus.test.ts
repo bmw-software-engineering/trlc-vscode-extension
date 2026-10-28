@@ -141,6 +141,7 @@ describe("textCommitValue", () => {
             nodes,
             version,
             references: {},
+            openFiles: [],
             ...extra,
         });
         const shown = model(3, [sec(0, "A", [rec("r")]), sec(1, "B", [])]);

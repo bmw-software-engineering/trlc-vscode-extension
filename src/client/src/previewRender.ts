@@ -25,7 +25,7 @@
  * data-* attributes and class names emitted here.
  */
 
-import { PreviewField, PreviewModel, PreviewNode, PreviewSectionNode } from "./previewProtocol";
+import { OpenableFile, PreviewField, PreviewModel, PreviewNode, PreviewSectionNode } from "./previewProtocol";
 
 export function escapeHtml(s: string): string {
     return s
@@ -221,6 +221,22 @@ function renderNode(node: PreviewNode, locked: boolean): string {
     );
 }
 
+/** One line per closed file declaring missing records, with a button to open it. */
+function renderOpenFiles(files: OpenableFile[]): string {
+    if (files.length === 0) {
+        return "";
+    }
+    const items = files.map((f) => {
+        const symbols = f.symbols.map((s) => `<code>${escapeHtml(s)}</code>`).join(", ");
+        const name = f.label.split("/").pop() ?? f.label;
+        return (
+            `<li>${symbols} — ${escapeHtml(f.label)} ` +
+            `<button class="open-file" data-uri="${escapeHtml(f.uri)}">Open ${escapeHtml(name)}</button></li>`
+        );
+    });
+    return `<ul class="open-files">${items.join("")}</ul>`;
+}
+
 /** The nodes of the last model that had some, and the document they belong to. */
 export interface LastNodes {
     uri: string;
@@ -232,7 +248,9 @@ export function renderPreview(model: PreviewModel, last: LastNodes | null): stri
     const locked = !model.editable;
     const fallback = last !== null && last.uri === model.uri ? last.nodes : null;
     const nodes = model.nodes ?? fallback ?? [];
-    const banner = locked ? `<div class="banner">${escapeHtml(model.reason ?? "")}</div>` : "";
+    const banner = locked
+        ? `<div class="banner">${escapeHtml(model.reason ?? "")}${renderOpenFiles(model.openFiles ?? [])}</div>`
+        : "";
     const toc = renderToc(nodes);
     return (
         (toc === "" ? "" : `<nav class="toc"><button class="toc-toggle">\u25be</button>${toc}</nav>`) +
@@ -320,6 +338,8 @@ button.array-add { align-self: flex-start; padding: 0 8px; }
 .md-note { color: var(--vscode-errorForeground); margin-bottom: 4px; }
 button.rename-section, button.dissolve-section { background: transparent; color: var(--vscode-foreground); padding: 0 4px; }
 .placeholder { color: var(--vscode-descriptionForeground); }
+.open-files { margin: 6px 0 0; padding-left: 18px; }
+.open-files li { margin: 2px 0; }
 `;
 
 export function previewShellHtml(nonce: string, cspSource: string, scriptUri: string): string {

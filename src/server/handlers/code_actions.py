@@ -17,7 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 # *******************************************************************************
-"""Code action handler for quick-fixes (e.g., "did you mean X?" suggestions)."""
+"""Code action handler for quick-fixes.
+
+"did you mean X?" suggestions, and opening an unopened .trlc file that
+declares an unknown symbol (parse mode WORKSPACE parses open files only).
+"""
 
 import re
 from typing import List, Optional
@@ -27,25 +31,52 @@ from lsprotocol.types import (
     CodeAction,
     CodeActionKind,
     CodeActionParams,
+    Command,
     TextDocumentEdit,
     TextEdit,
     VersionedTextDocumentIdentifier,
     WorkspaceEdit,
 )
 
+from ..missing_symbols import declaring_files, scope_label
 from ..server_protocol import ServerProtocol
+from ..token_utils import uri_from_file
 
 DID_YOU_MEAN_RE = re.compile(r"unknown symbol (\S+), did you mean (\S+)\?")
+#: Client command that opens a file as a background editor tab.
+OPEN_IN_BACKGROUND_COMMAND = "trlc.openFileInBackground"
+
+
+def _open_file_actions(ls, uri: str, diagnostic) -> List[CodeAction]:
+    """ "Open <file>" fixes for an unknown symbol declared in a closed file."""
+    try:
+        text = ls.workspace.get_text_document(uri).source
+    except OSError:
+        return []
+    actions = []
+    for path, names in declaring_files(ls, uri, text, [diagnostic]).items():
+        title = f"Open {scope_label(ls, uri, path)} (declares {names[0]})"
+        actions.append(
+            CodeAction(
+                title=title,
+                kind=CodeActionKind.QuickFix,
+                diagnostics=[diagnostic],
+                command=Command(
+                    title=title,
+                    command=OPEN_IN_BACKGROUND_COMMAND,
+                    arguments=[uri_from_file(path)],
+                ),
+            )
+        )
+    return actions
 
 
 def register(server: "ServerProtocol") -> None:
     """Register code action handlers on *server*."""
 
     @server.feature(TEXT_DOCUMENT_CODE_ACTION)
-    # pygls injects the server as the first arg *by parameter name* ("ls"),
-    # so it can't be renamed to "_ls"; this handler just doesn't need it.
     def code_action(
-        ls,  # pylint: disable=unused-argument
+        ls,
         params: CodeActionParams,
     ) -> Optional[List[CodeAction]]:
         """Provide code actions for diagnostics in the range."""
@@ -56,6 +87,7 @@ def register(server: "ServerProtocol") -> None:
             return actions
 
         for diagnostic in params.context.diagnostics:
+            actions.extend(_open_file_actions(ls, uri, diagnostic))
             match = DID_YOU_MEAN_RE.search(diagnostic.message)
             if not match:
                 continue

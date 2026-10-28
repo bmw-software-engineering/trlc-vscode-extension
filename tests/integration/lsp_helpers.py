@@ -26,6 +26,8 @@ get back the typed ``lsprotocol.types`` objects the client actually returns
 """
 
 import asyncio
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, List, Optional
 
 from lsprotocol import types
@@ -261,3 +263,29 @@ async def execute_command(
     return await client.workspace_execute_command_async(
         types.ExecuteCommandParams(command=command, arguments=arguments or [])
     )
+
+
+@asynccontextmanager
+async def reference_to_closed_record(
+    client: LanguageClient,
+    workspace: Path,
+    subdir: str,
+    types_uri: str,
+    sample_uri: str,
+):
+    """Open *sample_uri* referencing ``far_away``, a record declared only
+    in the closed file ``<subdir>/far.trlc`` (WORKSPACE mode parses open
+    .trlc files only, so it is an unknown symbol). Yields the sample's
+    diagnostics; the closed file is removed afterwards."""
+    declared = workspace / subdir / "far.trlc"
+    declared.parent.mkdir(exist_ok=True)
+    declared.write_text("package Types\nR far_away { }\n", "utf-8")
+    try:
+        rsl = "package Types\ntype R {\n    other optional R\n}\n"
+        open_document(client, types_uri, rsl)
+        open_document(
+            client, sample_uri, "package Types\nR here { other = far_away }\n"
+        )
+        yield await wait_for_diagnostics(client, sample_uri)
+    finally:
+        declared.unlink()

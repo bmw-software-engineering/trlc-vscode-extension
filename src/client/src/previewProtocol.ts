@@ -104,6 +104,20 @@ export interface PreviewModel {
     version: number | null;
     /** Names of the records each `referenceType` accepts (package-qualified outside the file's package). */
     references: Record<string, string[]>;
+    /**
+     * Closed .trlc files declaring records this file references but TRLC
+     * reported unknown (parse mode "workspace" parses open files only).
+     */
+    openFiles: OpenableFile[];
+}
+
+/** A closed file the preview offers to open. */
+export interface OpenableFile {
+    uri: string;
+    /** Path relative to the workspace folder. */
+    label: string;
+    /** The unknown symbols it declares. */
+    symbols: string[];
 }
 
 /**
@@ -146,4 +160,6 @@ export type WebviewToHost =
     | ({ type: "renameSection"; sectionId: number; title: string } & ModelRef)
     | ({ type: "dissolveSection"; sectionId: number } & ModelRef)
     | ({ type: "move"; item: ItemRef; targetSectionId: number | null; before: ItemRef | null } & ModelRef)
-    | { type: "reveal"; line: number };
+    | { type: "reveal"; line: number }
+    /** Opens one of the model's `openFiles` as a background editor tab. */
+    | { type: "openFile"; uri: string };

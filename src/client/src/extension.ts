@@ -32,7 +32,7 @@
 "use strict";
 
 import * as path from "path";
-import { commands, ExtensionContext, ExtensionMode, LogOutputChannel, TextEditor, languages, window, workspace } from "vscode";
+import { commands, ExtensionContext, ExtensionMode, LogOutputChannel, TextEditor, Uri, languages, window, workspace } from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -40,6 +40,7 @@ import {
 } from "vscode-languageclient/node";
 
 import { createLogger, Logger } from "./log";
+import { OPEN_IN_BACKGROUND_COMMAND, openInBackground } from "./openInBackground";
 import { registerPreview, TrlcPreview } from "./previewPanel";
 import { ensureDependencies, registerResetCommand } from "./installer";
 import { buildServerEnv, resolveInterpreter } from "./serverEnv";
@@ -284,6 +285,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
     );
     context.subscriptions.push(
         commands.registerCommand("extension.showTrlcFilesInScope", showFilesInScope)
+    );
+    context.subscriptions.push(
+        // Run by the server's "Open <file>" quick fix for unknown symbols.
+        commands.registerCommand(OPEN_IN_BACKGROUND_COMMAND, (uri: string) =>
+            openInBackground(Uri.parse(uri), window.activeTextEditor?.document.uri)
+        )
     );
 
     let pythonInterpreter: string;

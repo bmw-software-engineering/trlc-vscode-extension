@@ -41,14 +41,16 @@ const MODEL: PreviewModel = {
     nodes: [],
     version: 1,
     references: {},
+    openFiles: [],
 };
 
-function setup(): { deps: PreviewDeps & { sendRequest: sinon.SinonStub; applyEdit: sinon.SinonStub; showError: sinon.SinonStub; reveal: sinon.SinonStub }; post: sinon.SinonStub; ctl: PreviewController } {
+function setup(): { deps: PreviewDeps & { sendRequest: sinon.SinonStub; applyEdit: sinon.SinonStub; showError: sinon.SinonStub; reveal: sinon.SinonStub; openFile: sinon.SinonStub }; post: sinon.SinonStub; ctl: PreviewController } {
     const deps = {
         sendRequest: sinon.stub(),
         applyEdit: sinon.stub().resolves(true),
         showError: sinon.stub(),
         reveal: sinon.stub(),
+        openFile: sinon.stub().resolves(),
     };
     const post = sinon.stub<[HostToWebview], void>();
     const ctl = new PreviewController(deps as unknown as PreviewDeps, post);
@@ -208,6 +210,23 @@ describe("PreviewController", () => {
         sinon.assert.notCalled(deps.sendRequest);
         sinon.assert.notCalled(deps.reveal);
         sinon.assert.calledOnceWithExactly(post, { type: "noDocument" });
+    });
+
+    it("openFile opens only a file the model on screen offered", async () => {
+        const { deps, ctl } = setup();
+        const far = "file:///far.trlc";
+        deps.sendRequest.resolves({ ...MODEL, openFiles: [{ uri: far, label: "far.trlc", symbols: ["x"] }] });
+        await ctl.setDocument(URI);
+
+        await ctl.handleMessage({ type: "openFile", uri: "file:///elsewhere.trlc" });
+        sinon.assert.notCalled(deps.openFile);
+        await ctl.handleMessage({ type: "openFile", uri: far });
+        sinon.assert.calledOnceWithExactly(deps.openFile, far, URI);
+
+        deps.sendRequest.resolves(MODEL); // the next model offers nothing
+        await ctl.refresh();
+        await ctl.handleMessage({ type: "openFile", uri: far });
+        sinon.assert.calledOnce(deps.openFile);
     });
 
     it("reveal delegates to deps", async () => {

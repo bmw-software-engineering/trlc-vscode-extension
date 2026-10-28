@@ -50,6 +50,7 @@ def unavailable_model(uri: str, reason: str) -> dict:
         "nodes": None,
         "version": None,
         "references": {},
+        "openFiles": [],
     }
 
 
@@ -256,4 +257,6 @@ def build_preview_model(
         "version": None,
         # Candidates of the fields' "referenceType" keys.
         "references": refs.candidates,
+        # Closed files declaring symbols this file misses (see handler).
+        "openFiles": [],
     }

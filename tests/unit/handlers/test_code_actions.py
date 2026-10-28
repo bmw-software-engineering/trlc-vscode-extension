@@ -114,3 +114,45 @@ def test_no_diagnostics_returns_empty(fake_ls):
     # takes the early `return actions` before the loop that would otherwise
     # collapse it to None.
     assert actions == []
+
+
+def test_unknown_symbol_in_unopened_file_offers_open_command(
+    fake_ls, tmp_path
+):
+    """An unknown symbol declared in a closed .trlc file offers to open it."""
+    # Given: a scope rooted at tmp_path with an open file referencing a
+    # record that only a closed file declares
+    code_actions.register(fake_ls)
+    handler = fake_ls.get_handler("textDocument/codeAction")
+    (tmp_path / "sys").mkdir()
+    (tmp_path / "sys" / "far.trlc").write_text(
+        "package P\nT far_away { }\n", encoding="utf-8"
+    )
+    source = "package P\nT here { other = far_away }\n"
+    uri = (tmp_path / "here.trlc").as_uri()
+    fake_ls.open_scope(tmp_path.as_uri(), uri, source, vsm=None)
+    fake_ls.fh.update_files(uri, source)
+    diagnostic = Diagnostic(
+        range=Range(
+            start=Position(line=1, character=17),
+            end=Position(line=1, character=25),
+        ),
+        message="unknown symbol far_away",
+    )
+    params = CodeActionParams(
+        text_document=TextDocumentIdentifier(uri=uri),
+        range=diagnostic.range,
+        context=CodeActionContext(diagnostics=[diagnostic]),
+    )
+
+    # When: code actions are requested for that diagnostic
+    actions = handler(fake_ls, params)
+
+    # Then: one quick fix runs the client's open-in-background command
+    (action,) = actions
+    assert action.title == "Open sys/far.trlc (declares far_away)"
+    assert action.kind == "quickfix"
+    assert action.diagnostics == [diagnostic]
+    assert action.edit is None
+    assert action.command.command == "trlc.openFileInBackground"
+    assert action.command.arguments[0].endswith("/sys/far.trlc")
