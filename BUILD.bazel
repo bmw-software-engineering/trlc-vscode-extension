@@ -64,6 +64,7 @@ ts_project(
     transpiler = "tsc",
     tsconfig = ":tsconfig",
     deps = [
+        ":node_modules/@milkdown/kit",
         ":node_modules/@types/node",
         ":node_modules/@types/vscode",
         ":node_modules/vscode-languageclient",
@@ -101,6 +102,7 @@ esbuild(
     output = "src/client/out/preview.js",
     platform = "browser",
     visibility = ["//:__subpackages__"],
+    deps = [":node_modules/@milkdown/kit"],
 )
 
 filegroup(

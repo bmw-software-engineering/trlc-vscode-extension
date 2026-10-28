@@ -26,8 +26,10 @@
  */
 
 import { canDrop, isNoOpMove } from "./previewDnd";
-import { HostToWebview, ItemRef, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
+import { HostToWebview, ItemRef, PreviewField, PreviewModel, PreviewNode, WebviewToHost } from "./previewProtocol";
 import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue } from "./previewFocus";
+import { MarkdownRejection, markdownCommitValue, rejectionApplies } from "./previewMarkdown";
+import { mountMarkdownField } from "./previewMarkdownEditor";
 import { escapeHtml, LastNodes, renderErrorBanner, renderNoDocument, renderPreview } from "./previewRender";
 
 declare function acquireVsCodeApi(): { postMessage(msg: WebviewToHost): void };
@@ -44,6 +46,10 @@ let tocCollapsed = false;
 let dragItem: ItemRef | null = null;
 /** Mouse is down on a drag handle: hold renders so the handle is not detached before dragstart. */
 let pressing = false;
+/** Mounted Markdown editors of the current DOM; destroyed before it is replaced. */
+const mdMounts = new Map<HTMLElement, { destroy(): void }>();
+/** A Markdown edit the server refused: its text stays in the editor until committed again. */
+let rejection: (MarkdownRejection & { value: string; message: string }) | null = null;
 
 /** Nodes of the tree on screen (the fallback tree when the model has none). */
 function activeNodes(): PreviewNode[] {
@@ -78,6 +84,92 @@ function post(msg: WebviewToHost): void {
     vscode.postMessage(msg);
 }
 
+function destroyMarkdownFields(): void {
+    mdMounts.forEach((m) => m.destroy());
+    mdMounts.clear();
+}
+
+function findField(nodes: PreviewNode[], record: string, field: string): PreviewField | null {
+    for (const n of nodes) {
+        if (n.kind === "record" && n.name === record) {
+            return n.fields.find((f) => f.name === field) ?? null;
+        }
+        const found = n.kind === "section" ? findField(n.children, record, field) : null;
+        if (found) {
+            return found;
+        }
+    }
+    return null;
+}
+
+function commitMarkdown(el: HTMLElement, md: string): void {
+    const record = recordOf(el);
+    const field = el.dataset.field;
+    if (record === null || field === undefined) {
+        return;
+    }
+    if (rejection !== null && rejection.record === record && rejection.field === field) {
+        rejection = null; // committed again: the server decides anew
+    }
+    const value = markdownCommitValue(md, el.dataset.value ?? "", el.dataset.optional === "true");
+    if (value !== undefined) {
+        post({ type: "setField", record, field, value });
+    }
+}
+
+/** (Re-)mounts the editor of one `.md-field`, showing a refused edit instead of the server's value. */
+function mountMarkdown(el: HTMLElement): void {
+    mdMounts.get(el)?.destroy();
+    const record = recordOf(el) ?? "";
+    const field = el.dataset.field ?? "";
+    const serverValue = el.dataset.value ?? "";
+    let initial: string | undefined;
+    let note: string | undefined;
+    if (rejection !== null && currentModel !== null) {
+        if (rejectionApplies(rejection, currentModel.uri, record, field, serverValue)) {
+            initial = rejection.value;
+            note = rejection.message;
+        } else if (rejection.record === record && rejection.field === field) {
+            rejection = null; // the document moved on
+        }
+    }
+    mdMounts.set(
+        el,
+        mountMarkdownField(el, {
+            editable: !el.hasAttribute("disabled"),
+            onCommit: (md) => commitMarkdown(el, md),
+            initial,
+            note,
+        })
+    );
+}
+
+function mountMarkdownFields(): void {
+    root.querySelectorAll<HTMLElement>(".md-field").forEach(mountMarkdown);
+}
+
+/** Keeps a refused Markdown edit on screen (Ruling A); other fields ignore it. */
+function handleEditRejected(msg: Extract<HostToWebview, { type: "editRejected" }>): void {
+    const f = currentModel ? findField(activeNodes(), msg.record, msg.field) : null;
+    if (currentModel === null || f === null || !f.markdown) {
+        return;
+    }
+    rejection = {
+        uri: currentModel.uri,
+        record: msg.record,
+        field: msg.field,
+        serverValue: f.value ?? "",
+        value: msg.value ?? "",
+        message: msg.message,
+    };
+    const el = Array.from(mdMounts.keys()).find(
+        (e) => e.isConnected && recordOf(e) === msg.record && e.dataset.field === msg.field
+    );
+    if (el && !el.classList.contains("editing")) {
+        mountMarkdown(el);
+    }
+}
+
 function render(msg: HostToWebview): void {
     if (msg.type === "error") {
         // Keep the tree: replace only a previous error banner.
@@ -86,14 +178,19 @@ function render(msg: HostToWebview): void {
         return;
     }
     if (msg.type === "editRejected") {
-        // Handled by a later task (re-mount the editor with the rejected value).
+        handleEditRejected(msg);
         return;
     }
+    destroyMarkdownFields();
     if (msg.type === "noDocument") {
         currentModel = null;
         lastNodes = null;
+        rejection = null;
         root.innerHTML = renderNoDocument();
         return;
+    }
+    if (rejection !== null && rejection.uri !== msg.model.uri) {
+        rejection = null;
     }
     currentModel = msg.model;
     root.innerHTML = renderPreview(msg.model, lastNodes);
@@ -101,11 +198,16 @@ function render(msg: HostToWebview): void {
         lastNodes = { uri: msg.model.uri, nodes: msg.model.nodes };
     }
     applyToc(root.querySelector(".toc"));
+    mountMarkdownFields();
 }
 
 function inputHasFocus(): boolean {
     const a = document.activeElement;
-    return a !== null && root.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+    if (a === null || !root.contains(a)) {
+        return false;
+    }
+    // A Markdown editor being edited (its contenteditable, toolbar or link input).
+    return /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.closest(".md-field.editing") !== null;
 }
 
 function addFormOpen(): boolean {
@@ -125,6 +227,11 @@ function flushPending(): void {
 }
 
 window.addEventListener("message", (event: MessageEvent<HostToWebview>) => {
+    if (event.data.type === "editRejected") {
+        // Not a model: must not replace one waiting in `pending`.
+        handleEditRejected(event.data);
+        return;
+    }
     pending = event.data;
     flushPending();
 });

@@ -239,6 +239,23 @@ button.remove { background: transparent; color: var(--vscode-foreground); }
 .missing { color: var(--vscode-errorForeground); margin: 2px 0; }
 .md-field { flex: 1; min-height: 2em; border: 1px solid var(--vscode-input-border, transparent);
             background: var(--vscode-input-background); padding: 3px 6px; }
+.md-field.editing { border-color: var(--vscode-focusBorder); }
+.md-field:not([disabled]) .ProseMirror { cursor: text; }
+.md-field .ProseMirror { outline: none; white-space: pre-wrap; word-wrap: break-word; }
+.md-field p { margin: 0.25em 0; }
+.md-field a { color: var(--vscode-textLink-foreground); }
+.md-field code, .md-field pre { font-family: var(--vscode-editor-font-family);
+    background: var(--vscode-textCodeBlock-background); }
+.md-field pre { padding: 4px 8px; }
+.md-field table { border-collapse: collapse; margin: 4px 0; }
+.md-field th, .md-field td { border: 1px solid var(--vscode-panel-border); padding: 2px 6px; }
+.md-field .selectedCell { background: var(--vscode-editor-selectionBackground); }
+.md-toolbar { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 4px; }
+.md-toolbar button { padding: 1px 6px; color: var(--vscode-button-secondaryForeground);
+    background: var(--vscode-button-secondaryBackground); }
+.md-toolbar input.md-link-url { flex: 1; min-width: 12em; }
+.md-toolbar[hidden], .md-note[hidden], .md-link-url[hidden] { display: none; }
+.md-note { color: var(--vscode-errorForeground); margin-bottom: 4px; }
 button.rename-section, button.dissolve-section { background: transparent; color: var(--vscode-foreground); padding: 0 4px; }
 .placeholder { color: var(--vscode-descriptionForeground); }
 `;

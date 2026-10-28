@@ -64,6 +64,7 @@
         "typescript-eslint": "^8.64.0"
     },
     "dependencies": {
+        "@milkdown/kit": "7.22.3",
         "vscode-languageclient": "^10.1.0"
     },
     "scripts": {
