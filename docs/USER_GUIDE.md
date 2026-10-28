@@ -114,8 +114,10 @@ Without a `.trlc` file it shows "Open a .trlc file to preview it."
 - Click a record's name to jump to it in the editor.
 - Frozen fields are shown read-only.
 - A table of contents at the top lists all sections, indented by nesting
-  depth. It stays visible while you scroll; the arrow button collapses it.
-  Click an entry to scroll to that section.
+  depth. It stays visible while you scroll and takes at most about a third
+  of the panel height (a long one scrolls on its own); the arrow button
+  collapses it. Click an entry to scroll to that section, which then starts
+  just below the table of contents.
 - Required fields are marked with `*`. A required field without a value is
   flagged with a "Required field ... is missing" hint.
 - Nested sections are indented.
@@ -134,9 +136,13 @@ and can be undone with `Ctrl+Z`.
 - Choosing the blank option on a set optional field removes it; clearing
   the text of a set optional field and the **x** button next to an
   optional field do the same. Required fields cannot be removed.
-- Edits are applied one after another. An edit made while the parser is
-  still catching up with the previous one is sent again automatically once
-  the parse has finished.
+- Edits are applied one after another. A field edit made while the parser
+  is still catching up with the previous one is sent again automatically
+  once the parse has finished. If the parser is still busy then, the edit
+  is not saved: an error says so, and a Markdown field keeps your text and
+  saves it when you leave the field again.
+- A field edit always goes to the file it was made in, even if the preview
+  has meanwhile followed another editor.
 - Multi-line strings follow TRLC's triple-quote normalisation: leading and
   trailing whitespace and common indentation are not preserved.
 
@@ -158,6 +164,13 @@ until you fill them in; that error does not make the preview read-only.
   and its content moves up one nesting level. Comments are kept.
 - A section that is still open at the end of the file cannot receive new
   content until it is closed in the editor.
+- After you add a record or change a section (add, rename, dissolve,
+  move), these buttons and the drag handles are disabled until the preview
+  has been updated. If the file changed in the meantime, the action is
+  refused with "The preview was out of date; try again." and nothing is
+  changed, because it might otherwise hit the wrong section. An action
+  started in a preview that has since switched to another file is
+  cancelled.
 
 ### Moving records and sections
 

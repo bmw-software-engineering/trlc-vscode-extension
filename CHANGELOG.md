@@ -24,7 +24,13 @@ All notable changes to the TRLC VSCode Extension are documented here.
   `trlcServer.preview.markdownComponents` setting (default `description`)
   are rendered and edited as GitHub Flavored Markdown in a WYSIWYG editor.
   Every structural edit is re-checked by the server and refused if it would
-  change records, values or brace balance.
+  change records, values or brace balance. Adding records and section
+  edits are bound to the preview state they were made from: an action
+  based on an out-of-date preview is refused ("The preview was out of
+  date; try again.") instead of hitting another section, and the section
+  controls are disabled until the preview has caught up. The table of
+  contents is capped at about a third of the panel height and jumps land
+  below it.
 
 ---
 

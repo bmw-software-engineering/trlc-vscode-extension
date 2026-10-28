@@ -829,9 +829,14 @@ version the parse matched. `previewController.ts` sends one edit at a time
 applying to the `applyEdit` dependency injected by `previewPanel.ts`, which
 checks the version (the languageclient converter drops it) and calls
 `workspace.applyEdit`, so it behaves like a keyboard edit (undo, dirty
-state). The server refuses edits while the last parse is stale (error code
-`stale`: the controller resends the edit once after the next editable model)
-or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
+state). Every edit message from the webview names the `uri` of the model
+it was made from; a field edit is sent to that document even after the
+preview followed another editor (it is versioned), but no `editRejected` or
+refresh is posted for a document no longer shown. The server refuses edits
+while the last parse is stale (error code `stale`: the controller resends a
+field edit once after the next editable model; if that is stale again, the
+`editRejected` carries `retry` so a Markdown field commits the same text
+again on the next leave) or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
 component ... is not defined" (TRLC recovers from syntax errors, so such
 files are still in `all_files`; `Vscode_Message_Handler` puts the TRLC kind in
 `Diagnostic.data`). Failing user checks do not lock the file. A locked file
@@ -845,14 +850,27 @@ the target level. Every such edit passes through `verify_structure_edit`, a
 runtime guard that re-lexes the old and new text and refuses the edit
 unless the braces stay balanced and the same records with the same
 assignments remain. The four requests share the stale and locked checks of
-the field edits. A rejected edit reaches the webview as `editRejected`
+the field edits. Section ids are ordinals that renumber after every
+structural edit, so the model carries `version` (the buffer version its
+parse matches) and add record plus the four structure requests must send
+it back as `modelVersion`; the server refuses a mismatch with code
+`outdated` ("The preview was out of date; try again."). The controller
+never resends these id-based intents (on `stale` or `outdated` it shows the
+message and refreshes) and drops one made from a document no longer shown;
+the webview disables structure controls and drags after posting one until
+the next model renders. Unexpected exceptions in these requests are logged
+and answered with an internal-error message. A rejected edit reaches the webview as `editRejected`
 (`previewController.ts`); the controller shows the message through
 `window.showErrorMessage`, and `editRejected` additionally lets Markdown
 fields show an in-place "Not saved" note. Markdown values are written by `format_markdown`
 in `preview_values.py` as indented triple-quoted blocks, and refused when
 TRLC's dedent would alter the text. The webview side is `previewRender.ts`
 (HTML), `previewWebview.ts` (events, forms), `previewDnd.ts` (drag and
-drop) and `previewMarkdown.ts`/`previewMarkdownEditor.ts` (Milkdown).
+drop) and `previewMarkdown.ts`/`previewMarkdownEditor.ts` (Milkdown). A
+render keeps a mounted Milkdown editor (moves its node into the new tree)
+when the field's document, record, field, value, editability and
+optionality are unchanged and it shows no committed or refused text
+(`planMarkdownReuse`); only new or changed fields mount an editor.
 
 Key handler pattern:
 ```python
