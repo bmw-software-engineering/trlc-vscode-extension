@@ -224,7 +224,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 button.remove { background: transparent; color: var(--vscode-foreground); }
 .error-banner { background: var(--vscode-inputValidation-errorBackground);
                 border-color: var(--vscode-inputValidation-errorBorder); }
-.toc { margin-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+.toc { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background);
+       padding: 4px 0; margin-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); }
 .toc ul { margin: 2px 0; padding-left: 16px; list-style: none; }
 .toc.collapsed > ul { display: none; }
 .toc-link { cursor: pointer; color: var(--vscode-textLink-foreground); }
@@ -232,7 +233,8 @@ button.remove { background: transparent; color: var(--vscode-foreground); }
 .section-body { margin-left: 12px; padding-left: 12px; border-left: 2px solid var(--vscode-panel-border); }
 .drag-handle { cursor: grab; color: var(--vscode-descriptionForeground); margin: 0 4px; user-select: none; }
 .drop-zone { height: 6px; }
-.drop-zone.active { height: 10px; background: var(--vscode-focusBorder); }
+.dragging .drop-zone { background: var(--vscode-editorWidget-border, var(--vscode-panel-border)); opacity: 0.6; }
+.dragging .drop-zone.active { background: var(--vscode-focusBorder); opacity: 1; }
 .required { color: var(--vscode-errorForeground); }
 .missing { color: var(--vscode-errorForeground); margin: 2px 0; }
 .md-field { flex: 1; min-height: 2em; border: 1px solid var(--vscode-input-border, transparent);

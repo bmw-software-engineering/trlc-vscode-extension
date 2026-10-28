@@ -42,6 +42,37 @@ let pending: HostToWebview | null = null;
 let tocCollapsed = false;
 /** Item being dragged; non-null from dragstart to dragend. */
 let dragItem: ItemRef | null = null;
+/** Mouse is down on a drag handle: hold renders so the handle is not detached before dragstart. */
+let pressing = false;
+
+/** Nodes of the tree on screen (the fallback tree when the model has none). */
+function activeNodes(): PreviewNode[] {
+    return currentModel?.nodes ?? lastNodes?.nodes ?? [];
+}
+
+function applyToc(toc: Element | null): void {
+    toc?.classList.toggle("collapsed", tocCollapsed);
+    const toggle = toc?.querySelector(".toc-toggle");
+    if (toggle) {
+        toggle.textContent = tocCollapsed ? "\u25b8" : "\u25be";
+    }
+}
+
+/** Ends an inline form: drops focus out of it, removes it, lets a pending model render. */
+function finishForm(form: HTMLElement): void {
+    const a = document.activeElement;
+    if (a instanceof HTMLElement && form.contains(a)) {
+        a.blur();
+    }
+    form.remove();
+    flushPending();
+}
+
+function formOpen(mode: string, sectionId: string): boolean {
+    return Array.from(root.querySelectorAll<HTMLElement>(".add-form")).some(
+        (f) => f.dataset.mode === mode && f.dataset.sectionId === sectionId
+    );
+}
 
 function post(msg: WebviewToHost): void {
     vscode.postMessage(msg);
@@ -69,7 +100,7 @@ function render(msg: HostToWebview): void {
     if (msg.model.nodes !== null) {
         lastNodes = { uri: msg.model.uri, nodes: msg.model.nodes };
     }
-    root.querySelector(".toc")?.classList.toggle("collapsed", tocCollapsed);
+    applyToc(root.querySelector(".toc"));
 }
 
 function inputHasFocus(): boolean {
@@ -83,7 +114,10 @@ function addFormOpen(): boolean {
 
 /** Renders the pending model if that cannot swallow user input. */
 function flushPending(): void {
-    if (pending !== null && shouldRenderNow({ inputFocused: inputHasFocus(), addFormOpen: addFormOpen(), dragging: dragItem !== null })) {
+    if (pending !== null && shouldRenderNow({ inputFocused: inputHasFocus(), addFormOpen: addFormOpen(),
+            dragging: dragItem !== null,
+            pressing,
+        })) {
         const msg = pending;
         pending = null;
         render(msg);
@@ -156,6 +190,8 @@ root.addEventListener("keydown", (e) => {
         post({ type: "reveal", line: Number(t.dataset.line) });
     } else if (t instanceof HTMLElement && t.classList.contains("new-name") && e.key === "Enter") {
         t.closest<HTMLElement>(".add-form")?.querySelector<HTMLButtonElement>("button.create")?.click();
+    } else if (t instanceof HTMLElement && t.classList.contains("toc-link") && e.key === "Enter") {
+        t.click();
     } else if (t instanceof HTMLElement && t.classList.contains("section-title")) {
         const form = t.closest<HTMLElement>(".add-form");
         if (e.key === "Enter") {
@@ -186,6 +222,9 @@ function findSectionTitle(nodes: PreviewNode[], id: number): string {
  * add-form class so it blocks re-rendering while open, like the add-record form.
  */
 function showSectionForm(btn: HTMLButtonElement, mode: "insert" | "rename", sectionId: string, title: string): void {
+    if (formOpen(mode, sectionId)) {
+        return;
+    }
     const form = document.createElement("div");
     form.className = "add-form";
     form.dataset.mode = mode;
@@ -216,14 +255,17 @@ function submitSectionForm(button: HTMLButtonElement): void {
     } else {
         post({ type: "insertSection", sectionId: sid === "" ? null : Number(sid), title });
     }
-    form.className = "add-form-done";
-    flushPending();
+    finishForm(form);
 }
 
 function showAddForm(btn: HTMLButtonElement): void {
+    if (formOpen("add-record", btn.dataset.sectionId ?? "")) {
+        return;
+    }
     const types = currentModel?.recordTypes ?? [];
     const form = document.createElement("div");
     form.className = "add-form";
+    form.dataset.mode = "add-record";
     form.dataset.sectionId = btn.dataset.sectionId ?? "";
     const options = types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
     form.innerHTML =
@@ -262,21 +304,20 @@ root.addEventListener("click", (e) => {
                 const sid = form.dataset.sectionId ?? "";
                 post({ type: "addRecord", sectionId: sid === "" ? null : Number(sid), recordType: type, name });
                 // Form is done; let a pending model replace it.
-                form.className = "add-form-done";
-                flushPending();
+                finishForm(form);
             }
         } else if (button.classList.contains("add-section")) {
             showSectionForm(button, "insert", button.dataset.sectionId ?? "", "");
         } else if (button.classList.contains("rename-section")) {
             const sid = button.dataset.sectionId ?? "";
-            showSectionForm(button, "rename", sid, findSectionTitle(currentModel?.nodes ?? [], Number(sid)));
+            showSectionForm(button, "rename", sid, findSectionTitle(activeNodes(), Number(sid)));
         } else if (button.classList.contains("dissolve-section")) {
             post({ type: "dissolveSection", sectionId: Number(button.dataset.sectionId) });
         } else if (button.classList.contains("section-ok")) {
             submitSectionForm(button);
         } else if (button.classList.contains("toc-toggle")) {
             tocCollapsed = !tocCollapsed;
-            button.closest(".toc")?.classList.toggle("collapsed", tocCollapsed);
+            applyToc(button.closest(".toc"));
         } else if (button.classList.contains("cancel")) {
             const next = pending ?? (currentModel ? ({ type: "model", model: currentModel } as HostToWebview) : null);
             pending = null;
@@ -330,7 +371,7 @@ function acceptingZone(target: EventTarget | null): HTMLElement | null {
     if (dragItem.kind === "section" && zone.closest(`.section-block[data-section-id="${dragItem.sectionId}"]`)) {
         return null; // inside the subtree of the dragged section itself
     }
-    const nodes = currentModel.nodes ?? [];
+    const nodes = activeNodes();
     const sid = zone.dataset.targetSectionId ?? "";
     return canDrop(nodes, dragItem, sid === "" ? null : Number(sid)) ? zone : null;
 }
@@ -343,6 +384,7 @@ root.addEventListener("dragstart", (e) => {
         return;
     }
     dragItem = item;
+    root.classList.add("dragging");
     e.dataTransfer.setData(DRAG_MIME, JSON.stringify(item));
     e.dataTransfer.effectAllowed = "move";
 });
@@ -378,21 +420,40 @@ root.addEventListener("drop", (e) => {
     } else if (zone.dataset.beforeKind === "section") {
         before = { kind: "section", sectionId: Number(beforeId) };
     }
-    if (!isNoOpMove(currentModel?.nodes ?? [], dragItem, target, before)) {
+    if (!isNoOpMove(activeNodes(), dragItem, target, before)) {
         post({ type: "move", item: dragItem, targetSectionId: target, before });
+    }
+});
+
+// A press on a handle must not be interrupted by a re-render (the blur of a focused
+// input would otherwise flush a pending model and detach the handle before dragstart).
+root.addEventListener("mousedown", (e) => {
+    if (e.target instanceof Element && e.target.closest(".drag-handle")) {
+        pressing = true;
+    }
+});
+
+document.addEventListener("mouseup", () => {
+    if (pressing) {
+        pressing = false;
+        if (dragItem === null) {
+            flushPending();
+        }
     }
 });
 
 // Fires on the source after drop, on Escape and on a drop outside any zone.
 root.addEventListener("dragend", () => {
     dragItem = null;
+    pressing = false;
+    root.classList.remove("dragging");
     clearActiveZones();
     flushPending();
 });
 
 // Make record names keyboard reachable.
 new MutationObserver(() => {
-    root.querySelectorAll("a.record-name:not([tabindex])").forEach((a) => {
+    root.querySelectorAll("a.record-name:not([tabindex]), a.toc-link:not([tabindex])").forEach((a) => {
         a.setAttribute("tabindex", "0");
         a.setAttribute("role", "link");
     });

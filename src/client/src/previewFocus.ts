@@ -28,11 +28,13 @@ export interface RenderState {
     addFormOpen: boolean;
     /** A drag & drop gesture is in progress (a re-render would swallow the drop). */
     dragging: boolean;
+    /** The mouse is held down on a drag handle (a drag may be about to start). */
+    pressing: boolean;
 }
 
 /** A pending model may replace the DOM only when it cannot eat user input. */
 export function shouldRenderNow(state: RenderState): boolean {
-    return !state.inputFocused && !state.addFormOpen && !state.dragging;
+    return !state.inputFocused && !state.addFormOpen && !state.dragging && !state.pressing;
 }
 
 /** Whether a focusout should trigger a deferred flush of the pending model. */

@@ -283,6 +283,8 @@ describe("previewRender", () => {
             )
         );
         assert.ok(html.includes('<div id="root"></div>'));
+        assert.ok(/\.toc \{[^}]*position: sticky; top: 0;/.test(html));
+        assert.ok(html.includes(".dragging .drop-zone"));
         assert.ok(html.includes('<script nonce="N0nce" src="file:///s.js"></script>'));
     });
 });
