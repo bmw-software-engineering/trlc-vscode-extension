@@ -25,9 +25,13 @@ import { focusLeavesPreview, selectCommitValue, shouldRenderNow, textCommitValue
 
 describe("previewFocus", () => {
     it("renders only when no input is focused and no add form is open", () => {
-        assert.strictEqual(shouldRenderNow({ inputFocused: false, addFormOpen: false }), true);
-        assert.strictEqual(shouldRenderNow({ inputFocused: true, addFormOpen: false }), false);
-        assert.strictEqual(shouldRenderNow({ inputFocused: false, addFormOpen: true }), false);
+        assert.strictEqual(shouldRenderNow({ inputFocused: false, addFormOpen: false, dragging: false }), true);
+        assert.strictEqual(shouldRenderNow({ inputFocused: true, addFormOpen: false, dragging: false }), false);
+        assert.strictEqual(shouldRenderNow({ inputFocused: false, addFormOpen: true, dragging: false }), false);
+    });
+
+    it("does not render while dragging", () => {
+        assert.strictEqual(shouldRenderNow({ inputFocused: false, addFormOpen: false, dragging: true }), false);
     });
 
     it("does not flush when focus moves within the preview", () => {

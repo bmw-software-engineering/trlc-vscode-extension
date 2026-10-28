@@ -26,11 +26,13 @@ export interface RenderState {
     inputFocused: boolean;
     /** The inline "add record" form is open. */
     addFormOpen: boolean;
+    /** A drag & drop gesture is in progress (a re-render would swallow the drop). */
+    dragging: boolean;
 }
 
 /** A pending model may replace the DOM only when it cannot eat user input. */
 export function shouldRenderNow(state: RenderState): boolean {
-    return !state.inputFocused && !state.addFormOpen;
+    return !state.inputFocused && !state.addFormOpen && !state.dragging;
 }
 
 /** Whether a focusout should trigger a deferred flush of the pending model. */
