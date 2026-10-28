@@ -288,4 +288,11 @@ describe("previewRender", () => {
         assert.ok(html.includes(".dragging .drop-zone"));
         assert.ok(html.includes('<script nonce="N0nce" src="file:///s.js"></script>'));
     });
+
+    it("caps the sticky TOC height and scrolls it", () => {
+        const html = previewShellHtml("N0nce", "vscode-resource:", "file:///s.js");
+        const toc = /\.toc \{([^}]*)\}/.exec(html)?.[1] ?? "";
+        assert.ok(toc.includes("max-height: 35vh;"), toc);
+        assert.ok(toc.includes("overflow-y: auto;"), toc);
+    });
 });

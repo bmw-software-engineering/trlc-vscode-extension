@@ -225,7 +225,8 @@ button.remove { background: transparent; color: var(--vscode-foreground); }
 .error-banner { background: var(--vscode-inputValidation-errorBackground);
                 border-color: var(--vscode-inputValidation-errorBorder); }
 .toc { position: sticky; top: 0; z-index: 1; background: var(--vscode-editor-background);
-       padding: 4px 0; margin-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border); }
+       padding: 4px 0; margin-bottom: 12px; border-bottom: 1px solid var(--vscode-panel-border);
+       max-height: 35vh; overflow-y: auto; }
 .toc ul { margin: 2px 0; padding-left: 16px; list-style: none; }
 .toc.collapsed > ul { display: none; }
 .toc-link { cursor: pointer; color: var(--vscode-textLink-foreground); }

@@ -573,7 +573,13 @@ root.addEventListener("click", (e) => {
     }
     const tocLink = target.closest<HTMLElement>("a.toc-link");
     if (tocLink) {
-        document.getElementById(`section-${tocLink.dataset.sectionId}`)?.scrollIntoView({ block: "start" });
+        const section = document.getElementById(`section-${tocLink.dataset.sectionId}`);
+        if (section) {
+            // Land below the sticky TOC instead of under it.
+            const toc = root.querySelector<HTMLElement>(".toc");
+            section.style.scrollMarginTop = `${toc?.offsetHeight ?? 0}px`;
+            section.scrollIntoView({ block: "start" });
+        }
         return;
     }
     const link = target.closest<HTMLElement>("a.record-name");
