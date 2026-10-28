@@ -52,13 +52,31 @@ _CACHE: Dict[str, Tuple[int, int, Optional[str], frozenset]] = {}
 
 
 def package_of(text: str) -> Optional[str]:
-    """Package declared by a TRLC source text, if any."""
+    """Package declared by a TRLC source text, if any.
+
+    Args:
+        text: TRLC source text.
+
+    Returns:
+        The package name, or None if no declaration is found.
+    """
     match = _PACKAGE_RE.search(_NOISE_RE.sub(" ", text))
     return match.group(1) if match else None
 
 
 def _declarations(path: str) -> Tuple[Optional[str], frozenset]:
-    """(package, record names) declared in the .trlc file at *path*."""
+    """(package, record names) declared in the .trlc file at *path*.
+
+    Results are cached per path until its modification time or size
+    changes.
+
+    Args:
+        path: File system path of the .trlc file.
+
+    Returns:
+        A tuple of the package name (None if absent) and the frozen
+        set of declared record object names.
+    """
     stat = os.stat(path)
     cached = _CACHE.get(path)
     if cached and cached[:2] == (stat.st_mtime_ns, stat.st_size):
@@ -73,7 +91,17 @@ def _declarations(path: str) -> Tuple[Optional[str], frozenset]:
 
 
 def _trlc_files(folder: str, exclude_patterns: Iterable[str]) -> List[str]:
-    """All .trlc files under *folder*, skipping excluded directories."""
+    """All .trlc files under *folder*, skipping excluded directories.
+
+    Args:
+        folder: Root folder to walk.
+        exclude_patterns: Regular expressions matched against directory
+            names; invalid ones are ignored. ``bazel-*`` directories
+            are always skipped.
+
+    Returns:
+        The file paths in sorted directory-walk order.
+    """
     patterns = [re.compile(r"^bazel-.*$")]
     for pattern in exclude_patterns:
         try:
@@ -97,6 +125,14 @@ def unknown_symbol(text: str, diagnostic) -> Optional[Tuple[str, str]]:
     The package is the qualifier written before the name (``Pkg.name``)
     or, unqualified, the package of *text* itself. None if the
     diagnostic is not an unknown symbol or the package is unknown.
+
+    Args:
+        text: Source text of the file the diagnostic belongs to.
+        diagnostic: LSP diagnostic with ``message`` and ``range``
+            (0-based line and character).
+
+    Returns:
+        A tuple ``(name, package)``, or None.
     """
     match = UNKNOWN_SYMBOL_RE.match(diagnostic.message)
     if match is None:
@@ -112,7 +148,17 @@ def unknown_symbol(text: str, diagnostic) -> Optional[Tuple[str, str]]:
 
 
 def scope_label(ls, uri: str, path: str) -> str:
-    """*path* relative to the scope folder of *uri*, with ``/``."""
+    """*path* relative to the scope folder of *uri*, with ``/``.
+
+    Args:
+        ls: Language server (provides the context store).
+        uri: URI of the file whose scope is used.
+        path: File system path to label.
+
+    Returns:
+        The path relative to the scope folder using ``/``, or just the
+        file name if *uri* has no scope.
+    """
     scope_id = ls.store.scope_id_for_uri(uri)
     if scope_id is None:
         return os.path.basename(path)
@@ -128,6 +174,17 @@ def declaring_files(
     Maps each file path to the names it declares, in file order. Empty
     unless *uri* is parsed in parse mode WORKSPACE (the only mode that
     leaves .trlc files of the scope unparsed).
+
+    Args:
+        ls: Language server (provides config, store and open files).
+        uri: URI of the file with the diagnostics.
+        text: Source text of that file.
+        diagnostics: Diagnostics of the file; only unknown-symbol ones
+            are considered.
+
+    Returns:
+        A dict from file path to the wanted names it declares; empty
+        if there is nothing to find or the mode is not WORKSPACE.
     """
     config = ls.get_config_for_uri(uri)
     scope_id = ls.store.scope_id_for_uri(uri)

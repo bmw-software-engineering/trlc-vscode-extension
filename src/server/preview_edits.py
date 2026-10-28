@@ -49,15 +49,42 @@ _STEP = "    "
 
 
 def _eol(content: str) -> str:
+    """Line ending used by the file.
+
+    Args:
+        content: Full text of the file.
+
+    Returns:
+        CRLF if the file contains any CRLF, else LF.
+    """
     return "\r\n" if "\r\n" in content else "\n"
 
 
 def _line_start(content: str, offset: int) -> int:
+    """Character offset of the start of the line containing *offset*.
+
+    Args:
+        content: Full text of the file.
+        offset: Character offset (code points) into *content*.
+
+    Returns:
+        Offset just after the last newline before *offset*, or 0 on the
+        first line.
+    """
     return content.rfind("\n", 0, offset) + 1
 
 
 def _indent(content: str, offset: int) -> str:
-    """Leading whitespace of the line containing *offset*."""
+    """Leading whitespace of the line containing *offset*.
+
+    Args:
+        content: Full text of the file.
+        offset: Character offset (code points) into *content*.
+
+    Returns:
+        The run of spaces and tabs at the start of that line (possibly
+        empty).
+    """
     start = _line_start(content, offset)
     end = start
     while end < len(content) and content[end] in " \t":
@@ -66,11 +93,29 @@ def _indent(content: str, offset: int) -> str:
 
 
 def _only_space_before(content: str, tok) -> bool:
+    """Tell whether a token is the first thing on its line.
+
+    Args:
+        content: Full text of the file.
+        tok: TRLC token; its ``location.start_pos`` is a character offset.
+
+    Returns:
+        True if only whitespace precedes *tok* on its line.
+    """
     start = tok.location.start_pos
     return not content[_line_start(content, start) : start].strip()
 
 
 def _doc_end(content: str) -> Position:
+    """Position just after the last character of the file.
+
+    Args:
+        content: Full text of the file.
+
+    Returns:
+        LSP position with the zero-based last line and the column counted
+        in code points (not yet converted to UTF-16).
+    """
     return Position(
         line=content.count("\n"),
         character=len(content) - _line_start(content, len(content)),
@@ -78,7 +123,16 @@ def _doc_end(content: str) -> Position:
 
 
 def _utf16_column(line_text: str, column: int) -> int:
-    """UTF-16 code units of the first *column* code points of *line_text*."""
+    """UTF-16 code units of the first *column* code points of *line_text*.
+
+    Args:
+        line_text: Text of a single line, without its line ending.
+        column: Number of code points from the start of the line.
+
+    Returns:
+        The same distance in UTF-16 code units; each character beyond
+        the BMP counts as two.
+    """
     prefix = line_text[:column]
     return column + sum(1 for ch in prefix if ord(ch) > 0xFFFF)
 
@@ -88,10 +142,27 @@ def _to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
 
     TRLC columns count code points; LSP (and VS Code) count UTF-16 code
     units, so a non-BMP character earlier on a line shifts the column.
+
+    Args:
+        content: Full text of the file the edits apply to.
+        edits: Edits whose positions are zero-based line and code point
+            column.
+
+    Returns:
+        New edits with the same text and lines but UTF-16 columns.
     """
     lines = content.split("\n")
 
     def conv(pos: Position) -> Position:
+        """Convert one position to UTF-16 columns.
+
+        Args:
+            pos: Position with a code point column.
+
+        Returns:
+            Position on the same line with a UTF-16 column; a line past
+            the end of the file is treated as empty.
+        """
         text = lines[pos.line] if pos.line < len(lines) else ""
         return Position(
             line=pos.line, character=_utf16_column(text, pos.character)
@@ -107,17 +178,48 @@ def _to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
 
 
 def _start(tok) -> Position:
+    """Start of a token as an LSP position.
+
+    Args:
+        tok: TRLC token.
+
+    Returns:
+        Zero-based line and code point column of the token start.
+    """
     return get_location(tok).range.start
 
 
 def _end(tok) -> Position:
+    """End of a token as an LSP position.
+
+    Args:
+        tok: TRLC token.
+
+    Returns:
+        Zero-based line and code point column just past the token.
+    """
     return get_location(tok).range.end
 
 
 def _insert_before_ket(
     content: str, ket, indent: str, closing_indent: str, text: str
 ) -> TextEdit:
-    """Insert *text* (already EOL-joined) before the closing ``}``."""
+    """Insert *text* (already EOL-joined) before the closing ``}``.
+
+    If the ``}`` stands alone on its line the text becomes new lines
+    above it; otherwise the ``}`` is moved onto a line of its own.
+
+    Args:
+        content: Full text of the file.
+        ket: Token of the closing ``}``.
+        indent: Indentation for the inserted text.
+        closing_indent: Indentation for a ``}`` that has to move to a new
+            line.
+        text: Text to insert, lines already joined with the file's EOL.
+
+    Returns:
+        A zero-width insertion edit (code point columns).
+    """
     eol = _eol(content)
     if _only_space_before(content, ket):
         pos = Position(line=_start(ket).line, character=0)
@@ -129,6 +231,18 @@ def _insert_before_ket(
 
 
 def _find_component(rec: RecordSpan, field: str):
+    """Look up a field's component declaration on a record's type.
+
+    Args:
+        rec: Record to search.
+        field: Field name.
+
+    Returns:
+        The matching ``Composite_Component``.
+
+    Raises:
+        PreviewEditError: If the record type has no such field.
+    """
     for comp in rec.obj.n_typ.all_components():
         if comp.name == field:
             return comp
@@ -136,6 +250,17 @@ def _find_component(rec: RecordSpan, field: str):
 
 
 def _replace_value(tokens: list, span: FieldSpan, text: str) -> TextEdit:
+    """Replace the value of an existing assignment.
+
+    Args:
+        tokens: Token list of the file.
+        span: Token range of the assignment; its indices are token
+            indices, ``value_last`` is inclusive.
+        text: Replacement source text for the value.
+
+    Returns:
+        An edit covering the value tokens (code point columns).
+    """
     # Keep any comment between '=' and the value.
     first = span.value_first
     while first < span.value_last and tokens[first].kind == "COMMENT":
@@ -149,7 +274,17 @@ def _replace_value(tokens: list, span: FieldSpan, text: str) -> TextEdit:
 
 
 def _rest_of_line_is_comment(content: str, tokens: list, last: int) -> bool:
-    """True if only whitespace/comments follow token *last* on its line."""
+    """True if only whitespace/comments follow token *last* on its line.
+
+    Args:
+        content: Full text of the file.
+        tokens: Token list of the file.
+        last: Token index of the last token of the assignment.
+
+    Returns:
+        True if every following token on that line is a comment that
+        ends on it; False if real code or a multi-line comment follows.
+    """
     newline = content.find("\n", tokens[last].location.end_pos + 1)
     line_end = len(content) if newline < 0 else newline
     for tok in tokens[last + 1 :]:
@@ -163,6 +298,18 @@ def _rest_of_line_is_comment(content: str, tokens: list, last: int) -> bool:
 def _delete_assignment(
     content: str, tokens: list, span: FieldSpan
 ) -> TextEdit:
+    """Remove an assignment, taking its whole line when that is safe.
+
+    Args:
+        content: Full text of the file.
+        tokens: Token list of the file.
+        span: Token range of the assignment to delete.
+
+    Returns:
+        An edit with empty ``new_text`` (code point columns). It covers
+        the full line(s) if the assignment is alone on its line (a
+        trailing comment is removed too), else just the assignment.
+    """
     name_tok = tokens[span.name_tok]
     last_tok = tokens[span.value_last]
     if _only_space_before(content, name_tok) and _rest_of_line_is_comment(
@@ -179,6 +326,17 @@ def _delete_assignment(
 
 
 def _field_indent(content: str, structure: FileStructure, rec) -> str:
+    """Indentation to use for a field of *rec*.
+
+    Args:
+        content: Full text of the file.
+        structure: Scanned structure of the file.
+        rec: ``RecordSpan`` of the record.
+
+    Returns:
+        The indentation of the record's first explicit field, or the
+        record's own indentation plus one step if it has none.
+    """
     tokens = structure.tokens
     if rec.fields:
         first = min(span.name_tok for span in rec.fields.values())
@@ -189,7 +347,26 @@ def _field_indent(content: str, structure: FileStructure, rec) -> str:
 def _value_text(
     content: str, structure, rec, comp, value, markdown: bool, cur_package
 ) -> str:
-    """TRLC source text of *value* for component *comp* of *rec*."""
+    """TRLC source text of *value* for component *comp* of *rec*.
+
+    Args:
+        content: Full text of the file (for line endings and indent).
+        structure: Scanned structure of the file.
+        rec: ``RecordSpan`` of the record being edited.
+        comp: ``Composite_Component`` of the field.
+        value: A list of element inputs for array fields, else a single
+            input text.
+        markdown: Write a string field as an indented triple-quoted
+            Markdown block.
+        cur_package: Package of the file, used to qualify enum literals.
+
+    Returns:
+        Source text with the file's line endings.
+
+    Raises:
+        PreviewEditError: If a non-array field is given a list, or the
+            input cannot be formatted for the field type.
+    """
     kind = field_kind(comp.n_typ)
     if kind == "array":
         text = format_array(value, comp.n_typ, cur_package)
@@ -219,6 +396,26 @@ def set_field_edits(
     String fields named in *markdown_components* are written as
     indented triple-quoted Markdown blocks. Array fields take a list
     of element inputs, every other field a single text.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Exact text that was parsed.
+        cur_package: Package of the file, used to qualify enum literals.
+        record: Name of the record to edit.
+        field: Name of the field to set.
+        value: New value (list for arrays, text otherwise), or None to
+            remove the assignment.
+        markdown_components: Names of string fields to write as Markdown
+            blocks.
+
+    Returns:
+        Edits with UTF-16 positions; empty if *value* is None and the
+        field is not assigned.
+
+    Raises:
+        PreviewEditError: If the record or field is unknown, the field is
+            frozen, a required field is unset, the assignment cannot be
+            located, or the value is invalid for the field.
     """
     rec = structure.record(record)
     if rec is None:
@@ -273,7 +470,18 @@ def set_field_edits(
 
 
 def _record_text(cu, type_name: str, name: str, eol: str) -> str:
-    """Record declaration; lines after the first are joined by *eol*."""
+    """Record declaration; lines after the first are joined by *eol*.
+
+    Args:
+        cu: Compilation unit (package) providing the record types.
+        type_name: Name of a visible record type.
+        name: Name of the new record.
+        eol: Separator between lines, which may include indentation.
+
+    Returns:
+        Text with one placeholder assignment per required, non-frozen
+        field.
+    """
     typ = visible_record_types(cu)[type_name]
     lines = [f"{type_name} {name} {{"]
     for comp in typ.all_components():
@@ -294,7 +502,24 @@ def add_record_edits(
     type_name: str,
     name: str,
 ) -> "list[TextEdit]":
-    """Edits that add a new record at file level or into a section."""
+    """Edits that add a new record at file level or into a section.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Exact text that was parsed.
+        cu: Compilation unit (package) of the file.
+        section_id: Section to add the record to, or None for the end of
+            the file.
+        type_name: Name of the record type.
+        name: Name of the new record.
+
+    Returns:
+        A single insertion edit with UTF-16 positions.
+
+    Raises:
+        PreviewEditError: If the name is invalid or already used, the
+            type is unknown, or the section is missing or unclosed.
+    """
     if not _NAME.match(name) or name in TRLC_Lexer.KEYWORDS:
         raise PreviewEditError(f"'{name}' is not a valid record name.")
     # TRLC's own rule: names must be sufficiently distinct (case and

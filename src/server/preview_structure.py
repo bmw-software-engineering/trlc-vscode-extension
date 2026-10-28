@@ -23,6 +23,8 @@ Every edit is applied in memory and checked by
 change a record's values or break the brace structure is refused.
 """
 
+# pylint: disable=too-many-lines  # docstrings push it just past 1000
+
 import io
 from collections import Counter
 from dataclasses import dataclass
@@ -59,11 +61,28 @@ _BLANK = " \t\r"
 
 
 def _offset(lines: "list[int]", pos: Position) -> int:
+    """Convert a code-point position to an absolute offset.
+
+    Args:
+        lines: Offsets at which each line of the content starts.
+        pos: Position (0-based line, code-point character) to convert.
+
+    Returns:
+        The 0-based offset of *pos* in the content.
+    """
     return lines[pos.line] + pos.character
 
 
 def apply_text_edits(content: str, edits: "list[TextEdit]") -> str:
-    """Apply non-overlapping *edits* (code-point positions) to *content*."""
+    """Apply non-overlapping *edits* (code-point positions) to *content*.
+
+    Args:
+        content: The text to edit.
+        edits: Non-overlapping edits (code-point positions).
+
+    Returns:
+        The edited text; *content* itself is not modified.
+    """
     lines = [0]
     pos = content.find("\n")
     while pos >= 0:
@@ -91,6 +110,15 @@ def _lex(text: str) -> list:
 
     *text* must end with a newline (avoids a TRLC lexer quirk at the
     very end of input).
+
+    Args:
+        text: TRLC source to tokenize, ending with a newline.
+
+    Returns:
+        The tokens in source order, without comments and EOF.
+
+    Raises:
+        PreviewEditError: When the lexer reports an error.
     """
     lexer = TRLC_Lexer(Message_Handler(out=io.StringIO()), "preview", text)
     tokens = []
@@ -113,13 +141,31 @@ def _lex(text: str) -> list:
 
 
 def _text(content: str, tok) -> str:
+    """Source text of a token.
+
+    Args:
+        content: The text the token was lexed from.
+        tok: Lexer token.
+
+    Returns:
+        The value for a string token, else the exact source text.
+    """
     if tok.kind == "STRING":
         return tok.value
     return content[tok.location.start_pos : tok.location.end_pos + 1]
 
 
 def _is_record_start(tokens: list, idx: int) -> Optional[int]:
-    """Index of the record's ``{`` if a declaration starts at *idx*."""
+    """Index of the record's ``{`` if a declaration starts at *idx*.
+
+    Args:
+        tokens: Lexed tokens of the file.
+        idx: Token index at which to look for a declaration.
+
+    Returns:
+        The index of the opening brace, or None if no declaration
+        (``Type name {`` or ``Pkg.Type name {``) starts at *idx*.
+    """
     kinds = [tok.kind for tok in tokens[idx : idx + 5]]
     if kinds[:3] == ["IDENTIFIER", "IDENTIFIER", "C_BRA"]:
         return idx + 2
@@ -131,7 +177,18 @@ def _is_record_start(tokens: list, idx: int) -> Optional[int]:
 def _record_entries(
     content: str, tokens: list, first: int, bra: int, entries: list
 ) -> int:
-    """Add the record declared at ``[first, bra]``; return its ``}``."""
+    """Add the record declared at ``[first, bra]``; return its ``}``.
+
+    Args:
+        content: The text the tokens were lexed from.
+        tokens: Lexed tokens of the file.
+        first: Token index of the record's type name (first token).
+        bra: Token index of the record's opening brace.
+        entries: List receiving ``(record, field, value)`` tuples.
+
+    Returns:
+        Index of the closing brace, or ``len(tokens)`` if unclosed.
+    """
     name = tokens[bra - 1].value
     typ = " ".join(_text(content, tok) for tok in tokens[first : bra - 1])
     entries.append((name, "", typ))
@@ -161,6 +218,13 @@ def _entries(content: str, tokens: list) -> Counter:
 
     Each record also contributes ``(name, "", type)``, so a record
     without explicit assignments is accounted for as well.
+
+    Args:
+        content: The text the tokens were lexed from.
+        tokens: Lexed tokens of the file.
+
+    Returns:
+        Counter of ``(record name, field name, value text)`` tuples.
     """
     entries: list = []
     idx = 0
@@ -174,6 +238,14 @@ def _entries(content: str, tokens: list) -> Counter:
 
 
 def _balanced(tokens: list) -> bool:
+    """Check that curly braces are properly nested and closed.
+
+    Args:
+        tokens: Lexed tokens of the file.
+
+    Returns:
+        True if every ``}`` closes an earlier ``{`` and none stays open.
+    """
     depth = 0
     for tok in tokens:
         if tok.kind == "C_BRA":
@@ -186,7 +258,16 @@ def _balanced(tokens: list) -> bool:
 
 
 def verify_structure_edit(old: str, new: str) -> None:
-    """Refuse an edit that changes records, values or brace balance."""
+    """Refuse an edit that changes records, values or brace balance.
+
+    Args:
+        old: File content before the edit.
+        new: File content after the edit.
+
+    Raises:
+        PreviewEditError: When a text cannot be lexed, *new* has
+            unbalanced braces, or records or values differ.
+    """
     # The newline avoids a TRLC lexer quirk at the very end of input.
     old, new = old + "\n", new + "\n"
     old_tokens = _lex(old)
@@ -203,12 +284,35 @@ def verify_structure_edit(old: str, new: str) -> None:
 
 
 def _title(title: str) -> str:
+    """Format a section title as a TRLC string literal.
+
+    Args:
+        title: Requested section title.
+
+    Returns:
+        The quoted and escaped string literal.
+
+    Raises:
+        PreviewEditError: When *title* is blank or has a line break.
+    """
     if "\n" in title or "\r" in title or not title.strip():
         raise PreviewEditError("A section title must be a non-empty line.")
     return format_value("string", title, None, None)
 
 
 def _section(structure: FileStructure, section_id: int) -> SectionSpan:
+    """Look up a section of the file.
+
+    Args:
+        structure: Scanned structure of the file.
+        section_id: Id of the section.
+
+    Returns:
+        The section span.
+
+    Raises:
+        PreviewEditError: When no such section exists.
+    """
     sec = structure.section(section_id)
     if sec is None:
         raise PreviewEditError("The section no longer exists.")
@@ -216,6 +320,18 @@ def _section(structure: FileStructure, section_id: int) -> SectionSpan:
 
 
 def _closed(structure: FileStructure, section_id: int) -> SectionSpan:
+    """Look up a section that has a closing brace.
+
+    Args:
+        structure: Scanned structure of the file.
+        section_id: Id of the section.
+
+    Returns:
+        The section span.
+
+    Raises:
+        PreviewEditError: When the section is missing or not closed.
+    """
     sec = _section(structure, section_id)
     if sec.close_tok is None:
         raise PreviewEditError(
@@ -225,16 +341,45 @@ def _closed(structure: FileStructure, section_id: int) -> SectionSpan:
 
 
 def _checked(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
-    """Verify code-point *edits* against *content*; return them in UTF-16."""
+    """Verify code-point *edits* against *content*; return them in UTF-16.
+
+    Args:
+        content: The text the edits apply to.
+        edits: Non-overlapping edits with code-point positions.
+
+    Returns:
+        The same edits with positions converted to UTF-16 code units.
+
+    Raises:
+        PreviewEditError: When ``verify_structure_edit`` fails.
+    """
     verify_structure_edit(content, apply_text_edits(content, edits))
     return _to_utf16(content, edits)
 
 
 def _first_on_line(content: str, offset: int) -> bool:
+    """Check whether only whitespace precedes an offset on its line.
+
+    Args:
+        content: The text.
+        offset: 0-based offset into *content*.
+
+    Returns:
+        True if only whitespace precedes *offset* on its line.
+    """
     return not content[_line_start(content, offset) : offset].strip()
 
 
 def _position(content: str, offset: int) -> Position:
+    """Convert an offset to a code-point position.
+
+    Args:
+        content: The text.
+        offset: 0-based offset into *content*.
+
+    Returns:
+        The 0-based line and code-point character of *offset*.
+    """
     return Position(
         line=content.count("\n", 0, offset),
         character=offset - _line_start(content, offset),
@@ -247,7 +392,21 @@ def insert_section_edits(
     parent_id: Optional[int],
     title: str,
 ) -> "list[TextEdit]":
-    """Edits that append an empty section to a section or the file."""
+    """Edits that append an empty section to a section or the file.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        parent_id: Closed section to append to, None for the file.
+        title: Title of the new section.
+
+    Returns:
+        The verified edits with UTF-16 positions.
+
+    Raises:
+        PreviewEditError: When *title* is invalid, the parent is
+            missing or not closed, or verification fails.
+    """
     header = f"section {_title(title)} {{"
     eol = _eol(content)
     if parent_id is None:
@@ -278,7 +437,21 @@ def insert_section_edits(
 def rename_section_edits(
     structure: FileStructure, content: str, section_id: int, title: str
 ) -> "list[TextEdit]":
-    """Edits that replace the title string of a section."""
+    """Edits that replace the title string of a section.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        section_id: Id of the closed section to rename.
+        title: New section title.
+
+    Returns:
+        The verified edits with UTF-16 positions.
+
+    Raises:
+        PreviewEditError: When *title* is invalid, the section is
+            missing, not closed or has no title, or verification fails.
+    """
     text = _title(title)
     sec = _closed(structure, section_id)
     tokens = structure.tokens
@@ -295,18 +468,46 @@ def rename_section_edits(
 
 
 def _comment(content: str, tok) -> str:
-    """Source text of a comment token, without a CRLF's CR."""
+    """Source text of a comment token, without a CRLF's CR.
+
+    Args:
+        content: The text the token was lexed from.
+        tok: Comment token.
+
+    Returns:
+        The comment's text with trailing carriage returns removed.
+    """
     loc = tok.location
     return content[loc.start_pos : loc.end_pos + 1].rstrip("\r")
 
 
 def _same_line(content: str, prev_end: int, tok) -> bool:
-    """True if *tok* starts on the line where offset *prev_end* is."""
+    """True if *tok* starts on the line where offset *prev_end* is.
+
+    Args:
+        content: The text the token was lexed from.
+        prev_end: Offset (exclusive end) of the preceding item.
+        tok: Token to check.
+
+    Returns:
+        True if no newline lies between *prev_end* and the token start.
+    """
     return "\n" not in content[prev_end : tok.location.start_pos]
 
 
 def _header(content: str, tokens: list, sec: SectionSpan):
-    """(comments to keep, body start offset) of a section's header."""
+    """(comments to keep, body start offset) of a section's header.
+
+    Args:
+        content: Current file content.
+        tokens: Lexed tokens of the file, including comments.
+        sec: The section whose header is examined.
+
+    Returns:
+        The header comment tokens to keep and the body start offset.
+        Comments after the ``{`` are kept only if nothing else follows
+        on that line; otherwise that text belongs to the body.
+    """
     bra = sec.keyword_tok
     while tokens[bra].kind != "C_BRA":
         bra += 1
@@ -335,7 +536,17 @@ def _header(content: str, tokens: list, sec: SectionSpan):
 
 
 def _comment_lines(content: str, comments: list, indent: str, eol: str):
-    """*comments* as standalone lines at *indent*."""
+    """*comments* as standalone lines at *indent*.
+
+    Args:
+        content: The text the comment tokens were lexed from.
+        comments: Comment tokens to emit.
+        indent: Indentation put before each comment.
+        eol: Line ending put after each comment.
+
+    Returns:
+        The concatenated lines, or an empty string without comments.
+    """
     return "".join(indent + _comment(content, tok) + eol for tok in comments)
 
 
@@ -346,7 +557,18 @@ def _body(
     body_from: int,
     eol: str,
 ) -> str:
-    """The section's content, dedented one step, ending with *eol*."""
+    """The section's content, dedented one step, ending with *eol*.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        sec: The closed section whose body is returned.
+        body_from: Offset at which the body starts (after the header).
+        eol: Line ending of the file.
+
+    Returns:
+        The dedented body, or an empty string if it is blank.
+    """
     tokens = structure.tokens
     close_pos = tokens[sec.close_tok].location.start_pos
     close_first = _first_on_line(content, close_pos)
@@ -372,7 +594,16 @@ def _body(
 
 
 def _keep_final_eol(content: str, ext) -> bool:
-    """True if the replacement of *ext* must end with an EOL."""
+    """True if the replacement of *ext* must end with an EOL.
+
+    Args:
+        content: Current file content.
+        ext: Extent that is replaced.
+
+    Returns:
+        For whole-line extents, whether the original ends with a
+        newline; otherwise, whether text follows *ext* on its line.
+    """
     if ext.whole_lines:
         return content[ext.start : ext.end].endswith("\n")
     newline = content.find("\n", ext.end)
@@ -389,6 +620,18 @@ def dissolve_section_edits(
     comments of the header and of the closing brace become standalone
     lines at the section's former indentation. Comment lines directly
     above the section stay where they are.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        section_id: Id of the closed section to dissolve.
+
+    Returns:
+        The verified edits with UTF-16 positions (one replacement).
+
+    Raises:
+        PreviewEditError: When the section is missing or not closed,
+            or verification fails.
     """
     sec = _closed(structure, section_id)
     tokens = structure.tokens
@@ -454,6 +697,20 @@ class _Item(NamedTuple):
 
 
 def _resolve(structure: FileStructure, content: str, ref: ItemRef) -> _Item:
+    """Resolve a move request item against the file.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        ref: Record or section reference to resolve.
+
+    Returns:
+        The resolved item with its container, nesting level and extent.
+
+    Raises:
+        PreviewEditError: When the record or section is missing (or
+            not closed), or *ref* is of unknown kind.
+    """
     if ref.kind == "record":
         rec = structure.record(ref.name) if ref.name else None
         if rec is None:
@@ -479,7 +736,15 @@ def _resolve(structure: FileStructure, content: str, ref: ItemRef) -> _Item:
 
 
 def _children(structure: FileStructure, target: Optional[int]) -> list:
-    """Keys of the direct children of *target* in source order."""
+    """Keys of the direct children of *target* in source order.
+
+    Args:
+        structure: Scanned structure of the file.
+        target: Id of the section, or None for the file level.
+
+    Returns:
+        ``("record", name)`` and ``("section", section_id)`` keys.
+    """
     items = [
         (rec.name_tok, ("record", rec.obj.name))
         for rec in structure.records
@@ -499,6 +764,17 @@ def _same_position(
     target: Optional[int],
     anchor: Optional[_Item],
 ) -> bool:
+    """Check whether a move would leave the item where it is.
+
+    Args:
+        structure: Scanned structure of the file.
+        moved: The item to move.
+        target: Id of the target section, or None for the file level.
+        anchor: The item to drop before, or None to drop at the end.
+
+    Returns:
+        True if the item already sits at the requested position.
+    """
     if moved.container != target:
         return False
     kids = _children(structure, target)
@@ -512,6 +788,16 @@ def _same_position(
 def _reject_descendant(
     structure: FileStructure, section_id: int, target: Optional[int]
 ) -> None:
+    """Refuse moving a section into itself or one of its subsections.
+
+    Args:
+        structure: Scanned structure of the file.
+        section_id: Id of the section being moved.
+        target: Id of the target section, or None for the file level.
+
+    Raises:
+        PreviewEditError: When *target* is the section or a descendant.
+    """
     while target is not None:
         if target == section_id:
             raise PreviewEditError(
@@ -521,6 +807,17 @@ def _reject_descendant(
 
 
 def _edit(content: str, start: int, end: int, text: str) -> TextEdit:
+    """Build a text edit from offsets.
+
+    Args:
+        content: The text the offsets refer to.
+        start: Offset where the replaced range begins (inclusive).
+        end: Offset where the replaced range ends (exclusive).
+        text: Replacement text.
+
+    Returns:
+        The edit, with code-point positions.
+    """
     return TextEdit(
         range=Range(
             start=_position(content, start), end=_position(content, end)
@@ -534,6 +831,13 @@ def _cut(content: str, ext: Extent) -> TextEdit:
 
     A token-range extent also loses one adjacent space, and its line
     goes entirely if nothing but whitespace is left on it.
+
+    Args:
+        content: Current file content.
+        ext: Extent of the item to delete.
+
+    Returns:
+        The deleting edit, with code-point positions.
     """
     start, end = ext.start, ext.end
     if not ext.whole_lines:
@@ -553,7 +857,17 @@ def _cut(content: str, ext: Extent) -> TextEdit:
 def _target_indent(
     structure: FileStructure, content: str, target: Optional[SectionSpan]
 ) -> str:
-    """Indentation of the direct children of *target*."""
+    """Indentation of the direct children of *target*.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        target: The target section, or None for the file level.
+
+    Returns:
+        An empty string for the file level, else the section's
+        indentation plus one indent step.
+    """
     if target is None:
         return ""
     keyword = structure.tokens[target.keyword_tok]
@@ -569,7 +883,18 @@ def _paste(
     anchor: Optional[_Item],
     block: str,
 ) -> TextEdit:
-    """Edit that inserts *block* (complete lines) at the drop position."""
+    """Edit that inserts *block* (complete lines) at the drop position.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        target: The target section, or None for the file level.
+        anchor: Item to insert before, None to append to the target.
+        block: Text to insert, as complete lines ending with an EOL.
+
+    Returns:
+        The inserting edit, with code-point positions.
+    """
     eol = _eol(content)
     if anchor is not None:
         start = anchor.extent.start
@@ -605,6 +930,16 @@ def _block(
     """The moved item's text as complete lines, shifted by *levels*.
 
     A token-range item starts a fresh line at *indent*.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        moved: The item being moved.
+        levels: Nesting steps to shift by (negative dedents).
+        indent: Indentation for the first line of a token-range item.
+
+    Returns:
+        The shifted text, ending with a newline.
     """
     ext = moved.extent
     block = shift_block(
@@ -637,6 +972,20 @@ def move_edits(
     if that is None, at the end of the target. Its comments travel with
     it, and its lines are re-indented to the target nesting level. The
     result is one cut and one paste, or ``[]`` if nothing would move.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Current file content.
+        item: The record or section to move.
+        target_section_id: Closed target section id, None for file.
+        before: Child of the target to drop before, None for the end.
+
+    Returns:
+        The verified UTF-16 edits, or ``[]`` if nothing would move.
+
+    Raises:
+        PreviewEditError: When item, target or anchor is invalid, a
+            section would move into itself, or verification fails.
     """
     moved = _resolve(structure, content, item)
     target = None

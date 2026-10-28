@@ -68,6 +68,15 @@ _KINDS = (
 
 
 def _scalar_kind(n_typ) -> str:
+    """Value kind of a non-array type.
+
+    Args:
+        n_typ: TRLC type.
+
+    Returns:
+        ``"string"``, ``"integer"``, ``"decimal"``, ``"boolean"``,
+        ``"enum"`` or ``"reference"``; ``"other"`` for any other type.
+    """
     for cls, kind in _KINDS:
         if isinstance(n_typ, cls):
             return kind
@@ -75,7 +84,14 @@ def _scalar_kind(n_typ) -> str:
 
 
 def element_type(n_typ):
-    """Element type of an array type, or None for other types."""
+    """Element type of an array type, or None for other types.
+
+    Args:
+        n_typ: TRLC type.
+
+    Returns:
+        The array's element type, or None if *n_typ* is not an array.
+    """
     return n_typ.element_type if isinstance(n_typ, Array_Type) else None
 
 
@@ -84,6 +100,14 @@ def field_kind(n_typ) -> str:
 
     Arrays of scalars are "array" (their elements have the kind of
     the element type); other arrays are "other" (raw text).
+
+    Args:
+        n_typ: TRLC type of a record component.
+
+    Returns:
+        One of ``"string"``, ``"integer"``, ``"decimal"``,
+        ``"boolean"``, ``"enum"``, ``"reference"``, ``"array"`` or
+        ``"other"``.
     """
     elem = element_type(n_typ)
     if elem is not None:
@@ -92,14 +116,32 @@ def field_kind(n_typ) -> str:
 
 
 def type_ref(entity, cur_package) -> str:
-    """Name of entity, package-qualified outside the current package."""
+    """Name of entity, package-qualified outside the current package.
+
+    Args:
+        entity: TRLC entity with ``name`` and ``n_package`` (a type or
+            a record object).
+        cur_package: Package of the previewed file.
+
+    Returns:
+        ``name`` inside the current package, else ``Package.name``.
+    """
     if entity.n_package is cur_package:
         return entity.name
     return f"{entity.n_package.name}.{entity.name}"
 
 
 def _lexes_to(literal: str, expected: str) -> bool:
-    """True if literal lexes to exactly one STRING token == expected."""
+    """True if literal lexes to exactly one STRING token == expected.
+
+    Args:
+        literal: TRLC source text of a string literal.
+        expected: The string value the literal must evaluate to.
+
+    Returns:
+        True if lexing yields one STRING token with value *expected*
+        followed only by EOF; False otherwise, also on lexer errors.
+    """
     # The newline avoids a TRLC lexer quirk at the very end of input.
     lexer = TRLC_Lexer(
         Message_Handler(out=io.StringIO()), "preview", literal + "\n"
@@ -125,6 +167,16 @@ def _format_string(raw: str) -> str:
     triple-quote normalisation (outer whitespace stripped, common
     indentation removed, trailing line whitespace removed). Every
     candidate is re-lexed to guarantee the file stays valid.
+
+    Args:
+        raw: The string value to store.
+
+    Returns:
+        The literal: double-quoted for single-line text, else a
+        triple-quoted string with the first quote style that works.
+
+    Raises:
+        PreviewEditError: If no literal evaluates back to *raw*.
     """
     raw = raw.replace("\r\n", "\n").replace("\r", "\n")
     if "\n" not in raw and not raw.endswith("\\"):
@@ -147,6 +199,19 @@ def format_markdown(raw: str, indent: str, eol: str) -> str:
     *indent*, closing quotes at *indent*. The input is normalised first
     (LF line ends, no trailing whitespace, no outer blank lines). Raises
     PreviewEditError if TRLC's triple-quote dedent would alter the text.
+
+    Args:
+        raw: The Markdown text.
+        indent: Indentation of the field line; the closing quotes use
+            it and the body one step more.
+        eol: Line ending to use in the result.
+
+    Returns:
+        The literal text, lines joined with *eol*.
+
+    Raises:
+        PreviewEditError: If the text contains both quote styles or
+            would not read back unchanged.
     """
     norm = raw.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in norm.split("\n")]
@@ -173,13 +238,42 @@ def format_markdown(raw: str, indent: str, eol: str) -> str:
 
 
 def _enum_literal(name: str, n_typ, cur_package) -> str:
+    """Qualified source text of an enumeration literal.
+
+    Args:
+        name: Literal name.
+        n_typ: Enumeration type.
+        cur_package: Package of the previewed file.
+
+    Returns:
+        ``Type.name``, with the package prefix outside the current
+        package.
+
+    Raises:
+        PreviewEditError: If *name* is not a literal of the type.
+    """
     if name not in [lit.name for lit in n_typ.literals.table.values()]:
         raise PreviewEditError(f"'{name}' is not a literal of {n_typ.name}.")
     return f"{type_ref(n_typ, cur_package)}.{name}"
 
 
 def format_value(kind: str, raw: str, n_typ, cur_package) -> str:
-    """Render raw user input as TRLC source text, or raise."""
+    """Render raw user input as TRLC source text, or raise.
+
+    Args:
+        kind: Value kind (see ``field_kind``).
+        raw: The text entered by the user.
+        n_typ: TRLC type of the value; used for enums.
+        cur_package: Package of the previewed file.
+
+    Returns:
+        The TRLC source text: a string literal for strings, the
+        stripped text for numbers, booleans and references, a
+        qualified literal for enums.
+
+    Raises:
+        PreviewEditError: If the input is not valid for the kind.
+    """
     if kind == "string":
         return _format_string(raw)
     text = raw.strip()
@@ -209,6 +303,18 @@ def format_array(items, n_typ, cur_package) -> str:
 
     Each element is formatted like a single value of the element type;
     the number of elements must satisfy the array's bounds.
+
+    Args:
+        items: The element inputs; must be a list of strings.
+        n_typ: Array type (bounds and element type).
+        cur_package: Package of the previewed file.
+
+    Returns:
+        The array literal, e.g. ``[1, 2]``.
+
+    Raises:
+        PreviewEditError: If *items* is not a list of strings, violates
+            the bounds, or an element is invalid.
     """
     if not isinstance(items, list) or not all(
         isinstance(item, str) for item in items
@@ -246,6 +352,15 @@ def placeholder(kind: str, n_typ, cur_package) -> Optional[str]:
 
     For enums this is the first literal in declaration order; arrays
     get an empty list unless they need elements.
+
+    Args:
+        kind: Value kind of the field.
+        n_typ: TRLC type of the field.
+        cur_package: Package of the previewed file.
+
+    Returns:
+        The placeholder source text, or None if there is no sensible
+        default (e.g. references, arrays needing elements).
     """
     if kind in _PLACEHOLDERS:
         return _PLACEHOLDERS[kind]
@@ -259,7 +374,15 @@ def placeholder(kind: str, n_typ, cur_package) -> Optional[str]:
 
 
 def visible_record_types(cu) -> "dict[str, Record_Type]":
-    """Non-abstract record types of cu's package and its imports."""
+    """Non-abstract record types of cu's package and its imports.
+
+    Args:
+        cu: Compilation unit of the previewed file.
+
+    Returns:
+        A dict from the type name (qualified outside the current
+        package) to the record type.
+    """
     result = {}
     for pkg in [cu.package, *cu.imports]:
         for typ in pkg.symbols.values(Record_Type):

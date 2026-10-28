@@ -52,28 +52,72 @@ class Extent:
 
 
 def _line_end(content: str, offset: int) -> int:
-    """Offset just after the EOL of the line containing *offset*."""
+    """Offset just after the EOL of the line containing *offset*.
+
+    Args:
+        content: Full file text.
+        offset: Character offset anywhere inside the line.
+
+    Returns:
+        The character offset one past the newline ending the line, or
+        ``len(content)`` for a last line without EOL.
+    """
     newline = content.find("\n", offset)
     return len(content) if newline < 0 else newline + 1
 
 
 def _blank(text: str) -> bool:
+    """Tell whether *text* consists of whitespace only.
+
+    Args:
+        text: Text to test.
+
+    Returns:
+        True if *text* is empty or holds only blanks, tabs, carriage
+        returns and newlines.
+    """
     return not text.strip(_BLANK + "\n")
 
 
 def _first_on_line(content: str, offset: int) -> bool:
+    """Tell whether only whitespace precedes *offset* on its line.
+
+    Args:
+        content: Full file text.
+        offset: Character offset to test.
+
+    Returns:
+        True if the text from the line start up to *offset* is blank.
+    """
     return _blank(content[_line_start(content, offset) : offset])
 
 
 def _rest_blank(content: str, offset: int) -> bool:
-    """True if only whitespace follows *offset* up to the EOL."""
+    """True if only whitespace follows *offset* up to the EOL.
+
+    Args:
+        content: Full file text.
+        offset: Character offset to start at (inclusive).
+
+    Returns:
+        True if the rest of the line from *offset* is blank (or empty).
+    """
     newline = content.find("\n", offset)
     end = len(content) if newline < 0 else newline
     return _blank(content[offset:end])
 
 
 def _record_first(tokens: list, rec: RecordSpan) -> int:
-    """Index of the record's first token (its possibly qualified type)."""
+    """Index of the record's first token (its possibly qualified type).
+
+    Args:
+        tokens: Token list of the file.
+        rec: Span of the record; ``name_tok`` is the index of its name.
+
+    Returns:
+        The token index of the type name, or of the package name when
+        the type is written qualified (``Pkg.Type name``).
+    """
     first = rec.name_tok - 1
     if (
         first >= 2
@@ -85,7 +129,21 @@ def _record_first(tokens: list, rec: RecordSpan) -> int:
 
 
 def _extent(content: str, tokens: list, first: int, last: int) -> Extent:
-    """Extent of the item spanning tokens ``[first, last]``."""
+    """Extent of the item spanning tokens ``[first, last]``.
+
+    Trailing comments on the line of the last token and comment lines
+    directly above the first token (no blank line between) are included.
+
+    Args:
+        content: Full file text.
+        tokens: Token list of the file.
+        first: Index of the item's first token (inclusive).
+        last: Index of the item's last token (inclusive).
+
+    Returns:
+        The extent; whole-line (including the final EOL) only if the
+        item starts its line and nothing but blanks follows it.
+    """
     # Trailing comments starting on the line of the closing brace.
     while (
         last + 1 < len(tokens)
@@ -124,7 +182,17 @@ def _extent(content: str, tokens: list, first: int, last: int) -> Extent:
 def record_extent(
     structure: FileStructure, content: str, rec: RecordSpan
 ) -> Extent:
-    """Text of *rec* with the comments that belong to it."""
+    """Text of *rec* with the comments that belong to it.
+
+    Args:
+        structure: Scanned structure of the file (provides the tokens).
+        content: Full file text.
+        rec: Span of the record.
+
+    Returns:
+        The extent of the record, from its type name to its closing
+        brace, widened by its comments.
+    """
     tokens = structure.tokens
     return _extent(content, tokens, _record_first(tokens, rec), rec.close_tok)
 
@@ -134,7 +202,17 @@ def section_extent(
 ) -> Extent:
     """Text of *sec* (with all content) and the comments of it.
 
-    Raises ValueError for a section that is not closed.
+    Args:
+        structure: Scanned structure of the file (provides the tokens).
+        content: Full file text.
+        sec: Span of the section.
+
+    Returns:
+        The extent from the ``section`` keyword to the closing brace,
+        widened by its comments.
+
+    Raises:
+        ValueError: If the section is not closed.
     """
     if sec.close_tok is None:
         raise ValueError(f"Section '{sec.title}' is not closed.")
@@ -142,7 +220,18 @@ def section_extent(
 
 
 def _step_between(content: str, outer, inner) -> Optional[str]:
-    """Indent of token *inner* minus that of *outer*, if determinable."""
+    """Indent of token *inner* minus that of *outer*, if determinable.
+
+    Args:
+        content: Full file text.
+        outer: Token that opens the outer construct.
+        inner: Token inside it, on a later line.
+
+    Returns:
+        The extra leading whitespace of *inner*, or None if either
+        token is not first on its line, both share a line, or the
+        indent of *inner* does not extend that of *outer*.
+    """
     outer_pos = outer.location.start_pos
     inner_pos = inner.location.start_pos
     if not (
@@ -162,6 +251,17 @@ def _step_between(content: str, outer, inner) -> Optional[str]:
 def _first_section_step(
     structure: FileStructure, content: str
 ) -> Optional[str]:
+    """Indentation step used inside the file's first section.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Full file text.
+
+    Returns:
+        The step between the first section's keyword and its first
+        non-comment token after the opening brace, or None if there is
+        no section or the step cannot be determined.
+    """
     if not structure.sections:
         return None
     tokens = structure.tokens
@@ -181,6 +281,17 @@ def _first_section_step(
 def _first_record_step(
     structure: FileStructure, content: str
 ) -> Optional[str]:
+    """Indentation step used for the fields of the first record.
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Full file text.
+
+    Returns:
+        The step between the first record that has fields and its
+        earliest field, or None if there is none or it is not
+        determinable.
+    """
     tokens = structure.tokens
     for rec in structure.records:
         if rec.fields:
@@ -192,7 +303,17 @@ def _first_record_step(
 
 
 def indent_step(structure: FileStructure, content: str) -> str:
-    """The file's indentation step (default four spaces)."""
+    """The file's indentation step (default four spaces).
+
+    Args:
+        structure: Scanned structure of the file.
+        content: Full file text.
+
+    Returns:
+        The whitespace of one indentation level, taken from the first
+        section or else the first record with fields; the default step
+        if neither yields one.
+    """
     return (
         _first_section_step(structure, content)
         or _first_record_step(structure, content)
@@ -205,6 +326,17 @@ def _dedent_cut(content: str, pos: int, levels: int, step: str):
 
     Per level, one leading tab or up to a step's width of spaces is
     removed, never more than the available leading whitespace.
+
+    Args:
+        content: Full file text.
+        pos: Offset of the line start to dedent.
+        levels: Number of levels to remove.
+        step: Whitespace of one indentation level.
+
+    Returns:
+        A tuple ``(cut, complete)``: the offset up to which the line's
+        leading whitespace is removed, and whether all *levels* could
+        be removed.
     """
     width = len(step.expandtabs(4))
     cut = pos
@@ -222,7 +354,17 @@ def _dedent_cut(content: str, pos: int, levels: int, step: str):
 
 
 def _line_starts(content: str, start: int, end: int) -> "list[int]":
-    """Line starts inside ``[start, end)``; *start* only at a line start."""
+    """Line starts inside ``[start, end)``; *start* only at a line start.
+
+    Args:
+        content: Full file text.
+        start: Offset where the block begins (inclusive).
+        end: Offset where the block ends (exclusive).
+
+    Returns:
+        Ascending offsets of the lines that begin inside the block; a
+        trailing EOL at ``end - 1`` does not start another line.
+    """
     starts = []
     if start == 0 or content[start - 1] == "\n":
         starts.append(start)
@@ -234,7 +376,19 @@ def _line_starts(content: str, start: int, end: int) -> "list[int]":
 
 
 def _string_lines(content: str, tokens: list, start: int, end: int) -> dict:
-    """Map continuation line start -> STRING token, inside the block."""
+    """Map continuation line start -> STRING token, inside the block.
+
+    Args:
+        content: Full file text.
+        tokens: Token list of the file.
+        start: Offset where the block begins (inclusive).
+        end: Offset where the block ends (exclusive).
+
+    Returns:
+        A dict from the offset of every line that continues a
+        multi-line STRING token (all lines after its first) to that
+        token, for tokens overlapping the block.
+    """
     owner = {}
     for tok in tokens:
         if tok.kind != "STRING":
@@ -253,6 +407,18 @@ def _shift_line(content: str, pos: int, levels: int, step: str):
     """(cut offset, prefix, complete) for the line starting at *pos*.
 
     *complete* is False when a dedent ran out of leading whitespace.
+
+    Args:
+        content: Full file text.
+        pos: Offset of the line start.
+        levels: Levels to shift; positive indents, negative dedents.
+        step: Whitespace of one indentation level.
+
+    Returns:
+        A tuple ``(cut, prefix, complete)``: the offset up to which
+        the old leading whitespace is dropped, the whitespace to put
+        in front instead, and whether the shift was fully possible.
+        Blank lines get no prefix when indenting.
     """
     if levels > 0:
         if _rest_blank(content, pos):
@@ -267,6 +433,14 @@ def _has_text(content: str, line: int, tok_end: int) -> bool:
 
     *tok_end* is the token's last offset; its closing quotes on the
     last line do not count as text.
+
+    Args:
+        content: Full file text.
+        line: Offset of the start of the string line.
+        tok_end: Offset of the last character of the STRING token.
+
+    Returns:
+        True if the line contains non-whitespace text.
     """
     newline = content.find("\n", line, tok_end + 1)
     text_end = tok_end - 2 if newline < 0 else newline
@@ -274,7 +448,21 @@ def _has_text(content: str, line: int, tok_end: int) -> bool:
 
 
 def _string_frozen(content: str, tok, levels: int, step: str) -> bool:
-    """True if the lines of STRING *tok* must not be shifted."""
+    """True if the lines of STRING *tok* must not be shifted.
+
+    Only triple-quoted strings are affected. They are frozen when a
+    dedent would cut into text, or when the shifted literal would
+    evaluate to a different value.
+
+    Args:
+        content: Full file text.
+        tok: The STRING token.
+        levels: Levels the block is shifted by (negative dedents).
+        step: Whitespace of one indentation level.
+
+    Returns:
+        True if the string's continuation lines must stay unchanged.
+    """
     loc = tok.location
     raw = content[loc.start_pos : loc.end_pos + 1]
     if not raw.startswith(("'''", '"""')):
@@ -311,6 +499,18 @@ def shift_block(
     Continuation lines of a multi-line STRING are shifted like the
     others; if that cannot be done uniformly (dedent with too little
     whitespace), all lines of that string are left as they are.
+
+    Args:
+        content: Full file text.
+        tokens: Token list of the file.
+        start: Offset where the block begins (inclusive).
+        end: Offset where the block ends (exclusive).
+        levels: Levels to shift; positive indents, negative dedents,
+            zero returns the text unchanged.
+        step: Whitespace of one indentation level.
+
+    Returns:
+        The shifted text of ``content[start:end]``.
     """
     if levels == 0:
         return content[start:end]

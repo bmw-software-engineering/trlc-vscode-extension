@@ -33,7 +33,11 @@ from trlc.ast import Composite_Component, Record_Object, Section
 
 @dataclass(frozen=True)
 class FieldSpan:
-    """Token range of one explicit field assignment."""
+    """Token range of one explicit field assignment.
+
+    ``name_tok`` and ``value_first`` are token indices; ``value_last`` is
+    the inclusive token index of the last non-comment value token.
+    """
 
     name: str
     name_tok: int
@@ -77,14 +81,28 @@ class FileStructure:
     records: "list[RecordSpan]"
 
     def record(self, name: str) -> Optional[RecordSpan]:
-        """Return the record called *name*, or None."""
+        """Return the record called *name*, or None.
+
+        Args:
+            name: Record object name.
+
+        Returns:
+            The matching span, or None if there is none.
+        """
         for rec in self.records:
             if rec.obj.name == name:
                 return rec
         return None
 
     def section(self, section_id: int) -> Optional[SectionSpan]:
-        """Return the section with *section_id*, or None."""
+        """Return the section with *section_id*, or None.
+
+        Args:
+            section_id: Id assigned by ``scan_file``.
+
+        Returns:
+            The matching span, or None if there is none.
+        """
         for sec in self.sections:
             if sec.section_id == section_id:
                 return sec
@@ -92,7 +110,17 @@ class FileStructure:
 
 
 def _field_end(tokens: list, first: int, stop: int) -> int:
-    """Index of the last non-COMMENT token in ``[first, stop)``."""
+    """Index of the last non-COMMENT token in ``[first, stop)``.
+
+    Args:
+        tokens: Token list of the file.
+        first: Token index where the range starts (inclusive).
+        stop: Token index where the range ends (exclusive).
+
+    Returns:
+        Token index of the last non-comment token, or *first* if the
+        range holds none.
+    """
     last = first
     for idx in range(first, stop):
         if tokens[idx].kind != "COMMENT":
@@ -101,7 +129,17 @@ def _field_end(tokens: list, first: int, stop: int) -> int:
 
 
 def _next_non_comment(tokens: list, idx: int, stop: int) -> Optional[int]:
-    """Index of the first non-COMMENT token in ``[idx, stop)``, or None."""
+    """Index of the first non-COMMENT token in ``[idx, stop)``, or None.
+
+    Args:
+        tokens: Token list of the file.
+        idx: Token index where the search starts (inclusive).
+        stop: Token index where the search ends (exclusive).
+
+    Returns:
+        Token index of the first non-comment token, or None if the
+        range holds only comments or is empty.
+    """
     for pos in range(idx, stop):
         if tokens[pos].kind != "COMMENT":
             return pos
@@ -109,7 +147,16 @@ def _next_non_comment(tokens: list, idx: int, stop: int) -> Optional[int]:
 
 
 def _match_brace(tokens: list, open_idx: int) -> Optional[int]:
-    """Index of the ``}`` matching the ``{`` at *open_idx*, or None."""
+    """Index of the ``}`` matching the ``{`` at *open_idx*, or None.
+
+    Args:
+        tokens: Token list of the file.
+        open_idx: Token index of the opening ``{``.
+
+    Returns:
+        Token index of the matching ``}``, or None if the braces are
+        unbalanced.
+    """
     depth = 0
     for idx in range(open_idx, len(tokens)):
         kind = tokens[idx].kind
@@ -127,6 +174,15 @@ def _scan_record(tokens: list, start: int, section_id: Optional[int]):
 
     Returns the RecordSpan and the index of its closing ``}``, or None
     if the record is not terminated.
+
+    Args:
+        tokens: Token list of the file.
+        start: Token index of the record name; the ``{`` follows it.
+        section_id: Id of the enclosing section, or None at file level.
+
+    Returns:
+        A tuple of the RecordSpan and the token index of its closing
+        ``}``, or None if the record is not terminated.
     """
     obj = tokens[start].ast_link
     close = None
@@ -171,7 +227,16 @@ def _scan_record(tokens: list, start: int, section_id: Optional[int]):
 
 
 def scan_file(tokens: list) -> FileStructure:
-    """Locate sections, records and explicit assignments in *tokens*."""
+    """Locate sections, records and explicit assignments in *tokens*.
+
+    Args:
+        tokens: Token list of a parsed file, with ``ast_link`` set by the
+            TRLC parser.
+
+    Returns:
+        The file structure; sections are ordered by id, and sections left
+        open at the end of the file have ``close_tok`` None.
+    """
     sections: "list[SectionSpan]" = []
     records: "list[RecordSpan]" = []
     # open sections: (section_id, keyword_tok, title, depth, parent_id)
