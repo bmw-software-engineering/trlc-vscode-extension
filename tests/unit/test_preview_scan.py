@@ -153,3 +153,19 @@ def test_sections_open_at_eof_have_no_close_token(tmp_path):
         ("B", 0, None),
     ]
     assert structure.record("r1").section_id == 1
+
+
+def test_value_span_excludes_comment_after_assign(tmp_path):
+    rsl = "package P\ntype T {\n    a Integer\n    b Integer\n}\n"
+    src = "package P\nT r1 {\n    a = /* tbd */ 1\n    b = // d\n    2\n}\n"
+    (tmp_path / "p.rsl").write_text(rsl, encoding="utf-8")
+    (tmp_path / "p.trlc").write_text(src, encoding="utf-8")
+    sm = Source_Manager(Message_Handler())
+    sm.register_file(str(tmp_path / "p.rsl"), rsl)
+    sm.register_file(str(tmp_path / "p.trlc"), src)
+    assert sm.process() is not None
+    tokens = sm.all_files[str(tmp_path / "p.trlc")].lexer.tokens
+    fields = scan_file(tokens).record("r1").fields
+    for value, span in zip((1, 2), fields.values()):
+        assert tokens[span.value_first].kind == "INTEGER"
+        assert tokens[span.value_first].value == value

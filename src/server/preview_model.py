@@ -195,10 +195,6 @@ def _array_items(
     """
     tokens = structure.tokens
     first, last = span.value_first, span.value_last
-    while first < last and tokens[first].kind == "COMMENT":
-        first += 1
-    while last > first and tokens[last].kind == "COMMENT":
-        last -= 1
     if tokens[first].kind != "S_BRA" or tokens[last].kind != "S_KET":
         return None
     elements = [[]]

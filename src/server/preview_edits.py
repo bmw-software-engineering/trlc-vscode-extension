@@ -261,13 +261,12 @@ def _replace_value(tokens: list, span: FieldSpan, text: str) -> TextEdit:
     Returns:
         An edit covering the value tokens (code point columns).
     """
-    # Keep any comment between '=' and the value.
-    first = span.value_first
-    while first < span.value_last and tokens[first].kind == "COMMENT":
-        first += 1
+    # The span starts after any comment between '=' and the value, which
+    # is thereby kept.
     return TextEdit(
         range=Range(
-            start=_start(tokens[first]), end=_end(tokens[span.value_last])
+            start=_start(tokens[span.value_first]),
+            end=_end(tokens[span.value_last]),
         ),
         new_text=text,
     )

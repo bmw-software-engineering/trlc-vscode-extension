@@ -330,3 +330,16 @@ def test_references_from_imported_packages_are_qualified(tmp_path):
 
 def test_unavailable_model_has_no_references():
     assert not unavailable_model("file:///x.trlc", "r")["references"]
+
+
+def test_comment_after_assign_is_not_part_of_the_value(tmp_path):
+    rsl = "package P\ntype T {\n    a Integer\n    o optional T\n}\n"
+    src = (
+        "package P\n"
+        "T r1 {\n    a = /* tbd */ 5\n}\n"
+        "T r2 {\n    a = 1\n    o = // the parent\n    r1\n}\n"
+    )
+    nodes = _build(tmp_path, rsl, src)["nodes"]
+    values = [{f["name"]: f["value"] for f in n["fields"]} for n in nodes]
+    assert values[0]["a"] == "5"
+    assert values[1]["o"] == "r1"

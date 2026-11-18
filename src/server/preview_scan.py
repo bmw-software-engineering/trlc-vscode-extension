@@ -35,8 +35,9 @@ from trlc.ast import Composite_Component, Record_Object, Section
 class FieldSpan:
     """Token range of one explicit field assignment.
 
-    ``name_tok`` and ``value_first`` are token indices; ``value_last`` is
-    the inclusive token index of the last non-comment value token.
+    ``name_tok`` is a token index; ``value_first`` and ``value_last`` are
+    the inclusive token indices of the first and last non-comment value
+    token.
     """
 
     name: str
@@ -218,7 +219,8 @@ def _scan_record(tokens: list, start: int, section_id: Optional[int]):
     fields = {}
     for pos, (name_idx, assign) in enumerate(starts):
         stop = starts[pos + 1][0] if pos + 1 < len(starts) else close
-        first = assign + 1
+        # Comments between '=' and the value are not part of it.
+        first = _next_non_comment(tokens, assign + 1, stop) or assign + 1
         name = tokens[name_idx].value
         fields[name] = FieldSpan(
             name, name_idx, first, _field_end(tokens, first, stop)
