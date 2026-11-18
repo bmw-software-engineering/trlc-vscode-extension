@@ -21,11 +21,22 @@
 
 import * as path from "path";
 import { randomBytes } from "crypto";
-import { commands, ExtensionContext, Range, TextEditor, Uri, ViewColumn, WebviewPanel, window, workspace } from "vscode";
+import {
+    commands,
+    ExtensionContext,
+    Range,
+    TabInputText,
+    TextEditor,
+    Uri,
+    ViewColumn,
+    WebviewPanel,
+    window,
+    workspace,
+} from "vscode";
 import { LanguageClient, WorkspaceEdit as LspWorkspaceEdit } from "vscode-languageclient/node";
 
 import { isOpeningInBackground, openInBackground } from "./openInBackground";
-import { editMatchesVersions, PreviewController } from "./previewController";
+import { editMatchesVersions, PreviewController, revealColumn } from "./previewController";
 import { HostToWebview, WebviewToHost } from "./previewProtocol";
 import { previewShellHtml } from "./previewRender";
 
@@ -66,8 +77,22 @@ export function registerPreview(context: ExtensionContext, client: LanguageClien
             showError: (message) => void window.showErrorMessage(message),
             openFile: (target, keep) => openInBackground(Uri.parse(target), Uri.parse(keep)),
             reveal: (uri, line) => {
+                // Visible editors first, then background tabs of any group.
+                const shown = [
+                    ...window.visibleTextEditors.map((e) => ({
+                        uri: e.document.uri.toString(),
+                        viewColumn: e.viewColumn as number | undefined,
+                    })),
+                    ...window.tabGroups.all.flatMap((group) =>
+                        group.tabs.flatMap((tab) =>
+                            tab.input instanceof TabInputText
+                                ? [{ uri: tab.input.uri.toString(), viewColumn: group.viewColumn as number | undefined }]
+                                : [],
+                        ),
+                    ),
+                ];
                 void window.showTextDocument(Uri.parse(uri), {
-                    viewColumn: ViewColumn.One,
+                    viewColumn: revealColumn(shown, uri, panel?.viewColumn),
                     selection: new Range(line, 0, line, 0),
                 });
             },

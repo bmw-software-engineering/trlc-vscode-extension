@@ -57,6 +57,20 @@ export function editMatchesVersions(edit: unknown, versionOf: (uri: string) => n
     });
 }
 
+/**
+ * Editor column to reveal `uri` in: the one that already shows it (`shown`
+ * lists the open editors, most relevant first), else the first column, or
+ * the second if the preview itself sits in the first.
+ */
+export function revealColumn(
+    shown: { uri: string; viewColumn: number | undefined }[],
+    uri: string,
+    previewColumn: number | undefined,
+): number {
+    const column = shown.find((e) => e.uri === uri && e.viewColumn !== undefined)?.viewColumn;
+    return column ?? (previewColumn === 1 ? 2 : 1);
+}
+
 export const SWITCHED_MESSAGE = "TRLC: The preview switched files; the action was cancelled.";
 export const BUSY_MESSAGE = "TRLC: The parser was busy; the edit was not saved. Try again.";
 export const LOCKED_MESSAGE = "TRLC: The file has errors; the edit was not saved. Fix them in the editor.";

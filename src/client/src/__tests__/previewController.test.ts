@@ -28,6 +28,7 @@ import {
     LOCKED_MESSAGE,
     PreviewController,
     PreviewDeps,
+    revealColumn,
     SWITCHED_MESSAGE,
 } from "../previewController";
 import { HostToWebview, PreviewModel, WebviewToHost } from "../previewProtocol";
@@ -718,5 +719,26 @@ describe("editMatchesVersions", () => {
     it("rejects an edit for another version or a document that is not open", () => {
         assert.ok(!editMatchesVersions(edit(2), versionOf));
         assert.ok(!editMatchesVersions(edit(3), () => undefined));
+    });
+});
+
+describe("revealColumn", () => {
+    const OTHER = "file:///b.trlc";
+
+    it("uses the column that already shows the document", () => {
+        const shown = [
+            { uri: OTHER, viewColumn: 1 },
+            { uri: URI, viewColumn: 2 },
+        ];
+        assert.strictEqual(revealColumn(shown, URI, 3), 2);
+    });
+
+    it("opens a document shown nowhere in the first column", () => {
+        assert.strictEqual(revealColumn([{ uri: OTHER, viewColumn: 2 }], URI, 3), 1);
+        assert.strictEqual(revealColumn([{ uri: URI, viewColumn: undefined }], URI, undefined), 1);
+    });
+
+    it("does not cover a preview that sits in the first column", () => {
+        assert.strictEqual(revealColumn([], URI, 1), 2);
     });
 });
