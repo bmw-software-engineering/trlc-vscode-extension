@@ -52,6 +52,52 @@ from .token_utils import uri_from_file
 LOGGER = logging.getLogger(__name__)
 
 
+def compile_exclude_patterns(exclude_patterns) -> list:
+    """Compile the directory-name patterns excluded from file discovery.
+
+    Mirrors the TRLC CLI default by always excluding ``bazel-*``
+    directories. The patterns come from trlcServer.excludePatterns, i.e.
+    the user's own workspace settings (not external/untrusted input), so a
+    pathological regex here is a self-inflicted footgun, not an attack
+    surface: compile errors are logged and the pattern skipped, ReDoS is
+    not guarded against.
+
+    Args:
+        exclude_patterns: Regular expressions matched against directory
+            names, or None.
+
+    Returns:
+        The compiled patterns, ``bazel-*`` first.
+    """
+    compiled = [re.compile(r"^bazel-.*$")]
+    for pattern in exclude_patterns or ():
+        try:
+            compiled.append(re.compile(pattern))
+        except re.error as e:
+            LOGGER.warning("Invalid exclude pattern '%s': %s", pattern, e)
+    return compiled
+
+
+def walk_included(dir_name, exclude_patterns):
+    """``os.walk`` *dir_name*, skipping excluded directories.
+
+    Args:
+        dir_name: Root directory to walk.
+        exclude_patterns: Compiled patterns (see
+            :func:`compile_exclude_patterns`); a directory whose name
+            matches one is not descended into.
+
+    Yields:
+        ``(path, dirs, files)`` as ``os.walk`` does, with *dirs* sorted
+        and without the excluded ones.
+    """
+    for path, dirs, files in os.walk(dir_name):
+        dirs[:] = sorted(
+            d for d in dirs if not any(p.match(d) for p in exclude_patterns)
+        )
+        yield path, dirs, files
+
+
 class Vscode_Source_Manager(Source_Manager):
     """Reimplementation of TRLC's Source_Manager to read from VS Code's
     workspace."""
@@ -72,21 +118,7 @@ class Vscode_Source_Manager(Source_Manager):
         # cheaply detect an unchanged input set and skip a redundant reparse.
         # abspath -> in-editor content (str) or None (parse from disk).
         self._registered_inputs: dict = {}
-        # Mirror TRLC CLI default: exclude bazel-* directories.
-        # Patterns come from trlcServer.excludePatterns, i.e. the user's own
-        # workspace settings (not external/untrusted input), so a
-        # pathological regex here is a self-inflicted footgun, not an attack
-        # surface — compile errors are caught and logged (below), not
-        # guarded against ReDoS.
-        self.exclude_patterns = [re.compile(r"^bazel-.*$")]
-        if exclude_patterns:
-            for pattern in exclude_patterns:
-                try:
-                    self.exclude_patterns.append(re.compile(pattern))
-                except re.error as e:
-                    LOGGER.warning(
-                        "Invalid exclude pattern '%s': %s", pattern, e
-                    )
+        self.exclude_patterns = compile_exclude_patterns(exclude_patterns)
 
     def callback_parse_begin(self):
         self.ptoken = str(uuid.uuid4())
@@ -122,16 +154,7 @@ class Vscode_Source_Manager(Source_Manager):
         unopened .trlc file elsewhere in the workspace from colliding with
         an open file's symbol names purely by coincidence.
         """
-        for path, dirs, files in os.walk(dir_name):
-            for n, dirname in reversed(list(enumerate(dirs))):
-                keep = True
-                for exclude_pattern in self.exclude_patterns:
-                    if exclude_pattern.match(dirname):
-                        keep = False
-                        break
-                if not keep:
-                    del dirs[n]
-
+        for path, _, files in walk_included(dir_name, self.exclude_patterns):
             self.includes.update(
                 {
                     # Key by normalize_fs_path, NOT os.path.abspath (which is
@@ -161,18 +184,7 @@ class Vscode_Source_Manager(Source_Manager):
     def register_workspace(self, dir_name):
         """Register workspace."""
         ok = True
-        for path, dirs, files in os.walk(dir_name):
-            dirs.sort()
-
-            for n, dirname in reversed(list(enumerate(dirs))):
-                keep = True
-                for exclude_pattern in self.exclude_patterns:
-                    if exclude_pattern.match(dirname):
-                        keep = False
-                        break
-                if not keep:
-                    del dirs[n]
-
+        for path, _, files in walk_included(dir_name, self.exclude_patterns):
             for file_name in sorted(files):
                 if os.path.splitext(file_name)[1] in (".rsl", ".trlc"):
                     file_path = os.path.join(path, file_name)

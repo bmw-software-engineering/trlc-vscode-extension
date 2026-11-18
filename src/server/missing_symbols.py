@@ -33,6 +33,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from server.parse_guard import normalize_fs_path
 from server.server_config import ParseMode
+from server.source_manager import compile_exclude_patterns, walk_included
 from server.token_utils import decode_scope_id, path_from_uri
 
 #: TRLC's "unknown symbol X" (optionally ", did you mean Y?").
@@ -104,23 +105,15 @@ def _trlc_files(folder: str, exclude_patterns: Iterable[str]) -> List[str]:
     Args:
         folder: Root folder to walk.
         exclude_patterns: Regular expressions matched against directory
-            names; invalid ones are ignored. ``bazel-*`` directories
-            are always skipped.
+            names, as the parser applies them (see
+            ``source_manager.walk_included``).
 
     Returns:
         The file paths in sorted directory-walk order.
     """
-    patterns = [re.compile(r"^bazel-.*$")]
-    for pattern in exclude_patterns:
-        try:
-            patterns.append(re.compile(pattern))
-        except re.error:
-            continue  # reported where the patterns are applied to parsing
     found = []
-    for path, dirs, files in os.walk(folder):
-        dirs[:] = sorted(
-            d for d in dirs if not any(p.match(d) for p in patterns)
-        )
+    patterns = compile_exclude_patterns(exclude_patterns)
+    for path, _, files in walk_included(folder, patterns):
         found.extend(
             os.path.join(path, f) for f in sorted(files) if f.endswith(".trlc")
         )
