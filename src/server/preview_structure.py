@@ -36,14 +36,11 @@ from trlc.errors import Message_Handler, TRLC_Error
 from trlc.lexer import TRLC_Lexer
 
 from server.preview_edits import (
-    _doc_end,
-    _end,
-    _eol,
-    _indent,
-    _insert_before_ket,
-    _line_start,
-    _start,
-    _to_utf16,
+    doc_end,
+    end_position,
+    insert_before_ket,
+    start_position,
+    to_utf16,
 )
 from server.preview_layout import (
     Extent,
@@ -53,10 +50,14 @@ from server.preview_layout import (
     shift_block,
 )
 from server.preview_scan import FileStructure, SectionSpan
+from server.preview_text import (
+    BLANK,
+    first_on_line,
+    line_ending,
+    line_indent,
+    line_start,
+)
 from server.preview_values import PreviewEditError, format_value
-
-_BLANK = " \t\r"
-
 
 # --- applying and verifying -------------------------------------------------
 
@@ -355,20 +356,7 @@ def _checked(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
         PreviewEditError: When ``verify_structure_edit`` fails.
     """
     verify_structure_edit(content, apply_text_edits(content, edits))
-    return _to_utf16(content, edits)
-
-
-def _first_on_line(content: str, offset: int) -> bool:
-    """Check whether only whitespace precedes an offset on its line.
-
-    Args:
-        content: The text.
-        offset: 0-based offset into *content*.
-
-    Returns:
-        True if only whitespace precedes *offset* on its line.
-    """
-    return not content[_line_start(content, offset) : offset].strip()
+    return to_utf16(content, edits)
 
 
 def _position(content: str, offset: int) -> Position:
@@ -383,7 +371,7 @@ def _position(content: str, offset: int) -> Position:
     """
     return Position(
         line=content.count("\n", 0, offset),
-        character=offset - _line_start(content, offset),
+        character=offset - line_start(content, offset),
     )
 
 
@@ -409,9 +397,9 @@ def insert_section_edits(
             missing or not closed, or verification fails.
     """
     header = f"section {_title(title)} {{"
-    eol = _eol(content)
+    eol = line_ending(content)
     if parent_id is None:
-        pos = _doc_end(content)
+        pos = doc_end(content)
         lead = eol if content.endswith("\n") else eol + eol
         edit = TextEdit(
             range=Range(start=pos, end=pos),
@@ -421,11 +409,11 @@ def insert_section_edits(
 
     parent = _closed(structure, parent_id)
     tokens = structure.tokens
-    closing_indent = _indent(
+    closing_indent = line_indent(
         content, tokens[parent.keyword_tok].location.start_pos
     )
     indent = closing_indent + indent_step(structure, content)
-    edit = _insert_before_ket(
+    edit = insert_before_ket(
         content,
         tokens[parent.close_tok],
         indent,
@@ -462,7 +450,9 @@ def rename_section_edits(
     if idx >= len(tokens) or tokens[idx].kind != "STRING":
         raise PreviewEditError("The section title cannot be located.")
     edit = TextEdit(
-        range=Range(start=_start(tokens[idx]), end=_end(tokens[idx])),
+        range=Range(
+            start=start_position(tokens[idx]), end=end_position(tokens[idx])
+        ),
         new_text=text,
     )
     return _checked(content, [edit])
@@ -530,7 +520,7 @@ def _header(content: str, tokens: list, sec: SectionSpan):
         idx += 1
     newline = content.find("\n", end)
     line_end = len(content) if newline < 0 else newline
-    if content[end:line_end].strip(_BLANK):
+    if content[end:line_end].strip(BLANK):
         # Content follows on the header line: it is part of the body.
         return kept, tokens[bra].location.end_pos + 1
     return kept + trailing, min(line_end + 1, len(content))
@@ -572,8 +562,8 @@ def _body(
     """
     tokens = structure.tokens
     close_pos = tokens[sec.close_tok].location.start_pos
-    close_first = _first_on_line(content, close_pos)
-    body_to = _line_start(content, close_pos) if close_first else close_pos
+    close_first = first_on_line(content, close_pos)
+    body_to = line_start(content, close_pos) if close_first else close_pos
     body_to = max(body_to, body_from)
     body = shift_block(
         content,
@@ -583,11 +573,13 @@ def _body(
         -1,
         indent_step(structure, content),
     )
-    if not body.strip(_BLANK + "\n"):
+    if not body.strip(BLANK + "\n"):
         return ""
     if body_from > 0 and content[body_from - 1] != "\n":
         # Starts on the header line: put it on its own line.
-        indent = _indent(content, tokens[sec.keyword_tok].location.start_pos)
+        indent = line_indent(
+            content, tokens[sec.keyword_tok].location.start_pos
+        )
         body = indent + body.lstrip(" \t")
     if not close_first:
         body = body.rstrip(" \t") + eol
@@ -609,7 +601,7 @@ def _keep_final_eol(content: str, ext) -> bool:
         return content[ext.start : ext.end].endswith("\n")
     newline = content.find("\n", ext.end)
     rest = content[ext.end : len(content) if newline < 0 else newline]
-    return bool(rest.strip(_BLANK))
+    return bool(rest.strip(BLANK))
 
 
 def dissolve_section_edits(
@@ -637,9 +629,9 @@ def dissolve_section_edits(
     sec = _closed(structure, section_id)
     tokens = structure.tokens
     ext = section_extent(structure, content, sec)
-    eol = _eol(content)
+    eol = line_ending(content)
     kw_pos = tokens[sec.keyword_tok].location.start_pos
-    indent = _indent(content, kw_pos)
+    indent = line_indent(content, kw_pos)
     comments, body_from = _header(content, tokens, sec)
     closing = [
         tok
@@ -650,8 +642,8 @@ def dissolve_section_edits(
     # Comment lines above the section (and, for a section that does not
     # start its line, the text before it) stay as they are.
     above_end = kw_pos
-    if _first_on_line(content, kw_pos):
-        above_end = _line_start(content, kw_pos)
+    if first_on_line(content, kw_pos):
+        above_end = line_start(content, kw_pos)
     text = "".join(
         [
             content[ext.start : above_end],
@@ -846,12 +838,12 @@ def _cut(content: str, ext: Extent) -> TextEdit:
             end += 1
         elif start > 0 and content[start - 1] in " \t":
             start -= 1
-        line_start = _line_start(content, start)
+        line_begin = line_start(content, start)
         newline = content.find("\n", end)
         line_end = len(content) if newline < 0 else newline
-        rest = content[line_start:start] + content[end:line_end]
-        if not rest.strip(_BLANK):
-            start, end = line_start, min(line_end + 1, len(content))
+        rest = content[line_begin:start] + content[end:line_end]
+        if not rest.strip(BLANK):
+            start, end = line_begin, min(line_end + 1, len(content))
     return _edit(content, start, end, "")
 
 
@@ -872,7 +864,7 @@ def _target_indent(
     if target is None:
         return ""
     keyword = structure.tokens[target.keyword_tok]
-    return _indent(content, keyword.location.start_pos) + indent_step(
+    return line_indent(content, keyword.location.start_pos) + indent_step(
         structure, content
     )
 
@@ -896,11 +888,11 @@ def _paste(
     Returns:
         The inserting edit, with code-point positions.
     """
-    eol = _eol(content)
+    eol = line_ending(content)
     if anchor is not None:
         start = anchor.extent.start
-        if _first_on_line(content, start):
-            pos = _line_start(content, start)
+        if first_on_line(content, start):
+            pos = line_start(content, start)
             return _edit(content, pos, pos, block)
         # The anchor shares its line: it moves onto a fresh line, too.
         gap = start
@@ -912,11 +904,11 @@ def _paste(
         lead = eol if content.endswith("\n") else eol + eol
         return _edit(content, len(content), len(content), lead + block)
     tokens = structure.tokens
-    return _insert_before_ket(
+    return insert_before_ket(
         content,
         tokens[target.close_tok],
         "",
-        _indent(content, tokens[target.keyword_tok].location.start_pos),
+        line_indent(content, tokens[target.keyword_tok].location.start_pos),
         block[: -len(eol)] if block.endswith(eol) else block[:-1],
     )
 
@@ -956,7 +948,7 @@ def _block(
         # when the item starts its line); either way it gets *indent*.
         block = indent + block.lstrip(" \t")
     if not block.endswith("\n"):
-        block += _eol(content)
+        block += line_ending(content)
     return block
 
 
@@ -1007,8 +999,8 @@ def move_edits(
         return []
 
     indent = _target_indent(structure, content, target)
-    if anchor is not None and _first_on_line(content, anchor.extent.start):
-        indent = _indent(content, anchor.extent.start)
+    if anchor is not None and first_on_line(content, anchor.extent.start):
+        indent = line_indent(content, anchor.extent.start)
     block = _block(structure, content, moved, level - moved.level, indent)
     return _checked(
         content,

@@ -32,10 +32,14 @@ from typing import Optional
 
 from trlc.lexer import triple_quoted_string_value
 
-from server.preview_edits import _STEP, _indent, _line_start
 from server.preview_scan import FileStructure, RecordSpan, SectionSpan
-
-_BLANK = " \t\r"
+from server.preview_text import (
+    BLANK,
+    STEP,
+    first_on_line,
+    line_indent,
+    line_start,
+)
 
 
 @dataclass(frozen=True)
@@ -77,20 +81,7 @@ def _blank(text: str) -> bool:
         True if *text* is empty or holds only blanks, tabs, carriage
         returns and newlines.
     """
-    return not text.strip(_BLANK + "\n")
-
-
-def _first_on_line(content: str, offset: int) -> bool:
-    """Tell whether only whitespace precedes *offset* on its line.
-
-    Args:
-        content: Full file text.
-        offset: Character offset to test.
-
-    Returns:
-        True if the text from the line start up to *offset* is blank.
-    """
-    return _blank(content[_line_start(content, offset) : offset])
+    return not text.strip(BLANK + "\n")
 
 
 def _rest_blank(content: str, offset: int) -> bool:
@@ -162,20 +153,20 @@ def _extent(content: str, tokens: list, first: int, last: int) -> Extent:
     # A '//' comment token keeps the '\r' of a CRLF line end.
     while end > start and content[end - 1] == "\r":
         end -= 1
-    if not (_first_on_line(content, start) and _rest_blank(content, end)):
+    if not (first_on_line(content, start) and _rest_blank(content, end)):
         return Extent(start, end, False)
 
     # Comment lines directly above, without a blank line in between.
-    top = _line_start(content, start)
+    top = line_start(content, start)
     idx = first - 1
     while idx >= 0 and tokens[idx].kind == "COMMENT":
         com = tokens[idx].location
         gap = content[com.end_pos + 1 : top]
         if gap.count("\n") != 1 or not _blank(gap):
             break
-        if not _first_on_line(content, com.start_pos):
+        if not first_on_line(content, com.start_pos):
             break
-        top = _line_start(content, com.start_pos)
+        top = line_start(content, com.start_pos)
         idx -= 1
     return Extent(top, _line_end(content, end), True)
 
@@ -236,14 +227,13 @@ def _step_between(content: str, outer, inner) -> Optional[str]:
     outer_pos = outer.location.start_pos
     inner_pos = inner.location.start_pos
     if not (
-        _first_on_line(content, outer_pos)
-        and _first_on_line(content, inner_pos)
+        first_on_line(content, outer_pos) and first_on_line(content, inner_pos)
     ):
         return None
-    if _line_start(content, outer_pos) == _line_start(content, inner_pos):
+    if line_start(content, outer_pos) == line_start(content, inner_pos):
         return None
-    outer_ws = _indent(content, outer_pos)
-    inner_ws = _indent(content, inner_pos)
+    outer_ws = line_indent(content, outer_pos)
+    inner_ws = line_indent(content, inner_pos)
     if len(inner_ws) <= len(outer_ws) or not inner_ws.startswith(outer_ws):
         return None
     return inner_ws[len(outer_ws) :]
@@ -318,7 +308,7 @@ def indent_step(structure: FileStructure, content: str) -> str:
     return (
         _first_section_step(structure, content)
         or _first_record_step(structure, content)
-        or _STEP
+        or STEP
     )
 
 

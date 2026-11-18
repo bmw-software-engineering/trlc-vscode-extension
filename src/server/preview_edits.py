@@ -34,6 +34,13 @@ from trlc.ast import Implicit_Null, Symbol_Table
 from trlc.lexer import TRLC_Lexer
 
 from server.preview_scan import FieldSpan, FileStructure, RecordSpan
+from server.preview_text import (
+    STEP,
+    first_on_line,
+    line_ending,
+    line_indent,
+    line_start,
+)
 from server.preview_values import (
     PreviewEditError,
     field_kind,
@@ -46,68 +53,9 @@ from server.preview_values import (
 from server.token_utils import get_location
 
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
-_STEP = "    "
 
 
-def _eol(content: str) -> str:
-    """Line ending used by the file.
-
-    Args:
-        content: Full text of the file.
-
-    Returns:
-        CRLF if the file contains any CRLF, else LF.
-    """
-    return "\r\n" if "\r\n" in content else "\n"
-
-
-def _line_start(content: str, offset: int) -> int:
-    """Character offset of the start of the line containing *offset*.
-
-    Args:
-        content: Full text of the file.
-        offset: Character offset (code points) into *content*.
-
-    Returns:
-        Offset just after the last newline before *offset*, or 0 on the
-        first line.
-    """
-    return content.rfind("\n", 0, offset) + 1
-
-
-def _indent(content: str, offset: int) -> str:
-    """Leading whitespace of the line containing *offset*.
-
-    Args:
-        content: Full text of the file.
-        offset: Character offset (code points) into *content*.
-
-    Returns:
-        The run of spaces and tabs at the start of that line (possibly
-        empty).
-    """
-    start = _line_start(content, offset)
-    end = start
-    while end < len(content) and content[end] in " \t":
-        end += 1
-    return content[start:end]
-
-
-def _only_space_before(content: str, tok) -> bool:
-    """Tell whether a token is the first thing on its line.
-
-    Args:
-        content: Full text of the file.
-        tok: TRLC token; its ``location.start_pos`` is a character offset.
-
-    Returns:
-        True if only whitespace precedes *tok* on its line.
-    """
-    start = tok.location.start_pos
-    return not content[_line_start(content, start) : start].strip()
-
-
-def _doc_end(content: str) -> Position:
+def doc_end(content: str) -> Position:
     """Position just after the last character of the file.
 
     Args:
@@ -119,7 +67,7 @@ def _doc_end(content: str) -> Position:
     """
     return Position(
         line=content.count("\n"),
-        character=len(content) - _line_start(content, len(content)),
+        character=len(content) - line_start(content, len(content)),
     )
 
 
@@ -138,7 +86,7 @@ def _utf16_column(line_text: str, column: int) -> int:
     return column + sum(1 for ch in prefix if ord(ch) > 0xFFFF)
 
 
-def _to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
+def to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
     """Convert edit positions from code points to UTF-16 code units.
 
     TRLC columns count code points; LSP (and VS Code) count UTF-16 code
@@ -178,7 +126,7 @@ def _to_utf16(content: str, edits: "list[TextEdit]") -> "list[TextEdit]":
     ]
 
 
-def _start(tok) -> Position:
+def start_position(tok) -> Position:
     """Start of a token as an LSP position.
 
     Args:
@@ -190,7 +138,7 @@ def _start(tok) -> Position:
     return get_location(tok).range.start
 
 
-def _end(tok) -> Position:
+def end_position(tok) -> Position:
     """End of a token as an LSP position.
 
     Args:
@@ -202,7 +150,7 @@ def _end(tok) -> Position:
     return get_location(tok).range.end
 
 
-def _insert_before_ket(
+def insert_before_ket(
     content: str, ket, indent: str, closing_indent: str, text: str
 ) -> TextEdit:
     """Insert *text* (already EOL-joined) before the closing ``}``.
@@ -221,12 +169,12 @@ def _insert_before_ket(
     Returns:
         A zero-width insertion edit (code point columns).
     """
-    eol = _eol(content)
-    if _only_space_before(content, ket):
-        pos = Position(line=_start(ket).line, character=0)
+    eol = line_ending(content)
+    if first_on_line(content, ket.location.start_pos):
+        pos = Position(line=start_position(ket).line, character=0)
         new_text = indent + text + eol
     else:
-        pos = _start(ket)
+        pos = start_position(ket)
         new_text = eol + indent + text + eol + closing_indent
     return TextEdit(range=Range(start=pos, end=pos), new_text=new_text)
 
@@ -266,8 +214,8 @@ def _replace_value(tokens: list, span: FieldSpan, text: str) -> TextEdit:
     # is thereby kept.
     return TextEdit(
         range=Range(
-            start=_start(tokens[span.value_first]),
-            end=_end(tokens[span.value_last]),
+            start=start_position(tokens[span.value_first]),
+            end=end_position(tokens[span.value_last]),
         ),
         new_text=text,
     )
@@ -312,16 +260,16 @@ def _delete_assignment(
     """
     name_tok = tokens[span.name_tok]
     last_tok = tokens[span.value_last]
-    if _only_space_before(content, name_tok) and _rest_of_line_is_comment(
-        content, tokens, span.value_last
-    ):
-        start = Position(line=_start(name_tok).line, character=0)
+    if first_on_line(
+        content, name_tok.location.start_pos
+    ) and _rest_of_line_is_comment(content, tokens, span.value_last):
+        start = Position(line=start_position(name_tok).line, character=0)
         if content.find("\n", last_tok.location.end_pos + 1) < 0:
-            end = _doc_end(content)
+            end = doc_end(content)
         else:
-            end = Position(line=_end(last_tok).line + 1, character=0)
+            end = Position(line=end_position(last_tok).line + 1, character=0)
     else:
-        start, end = _start(name_tok), _end(last_tok)
+        start, end = start_position(name_tok), end_position(last_tok)
     return TextEdit(range=Range(start=start, end=end), new_text="")
 
 
@@ -340,8 +288,8 @@ def _field_indent(content: str, structure: FileStructure, rec) -> str:
     tokens = structure.tokens
     if rec.fields:
         first = min(span.name_tok for span in rec.fields.values())
-        return _indent(content, tokens[first].location.start_pos)
-    return _indent(content, tokens[rec.name_tok].location.start_pos) + _STEP
+        return line_indent(content, tokens[first].location.start_pos)
+    return line_indent(content, tokens[rec.name_tok].location.start_pos) + STEP
 
 
 def _value_text(
@@ -374,12 +322,12 @@ def _value_text(
         raise PreviewEditError(f"Field '{comp.name}' takes a single value.")
     elif kind == "string" and markdown:
         return format_markdown(
-            value, _field_indent(content, structure, rec), _eol(content)
+            value, _field_indent(content, structure, rec), line_ending(content)
         )
     else:
         text = format_value(kind, value, comp.n_typ, cur_package)
     # Multi-line string literals must use the file's line endings.
-    return text.replace("\n", _eol(content))
+    return text.replace("\n", line_ending(content))
 
 
 def set_field_edits(
@@ -442,7 +390,7 @@ def set_field_edits(
     if value is None:
         if span is None:
             return []
-        return _to_utf16(content, [_delete_assignment(content, tokens, span)])
+        return to_utf16(content, [_delete_assignment(content, tokens, span)])
 
     text = _value_text(
         content,
@@ -454,15 +402,15 @@ def set_field_edits(
         cur_package,
     )
     if span is not None:
-        return _to_utf16(content, [_replace_value(tokens, span, text)])
-    return _to_utf16(
+        return to_utf16(content, [_replace_value(tokens, span, text)])
+    return to_utf16(
         content,
         [
-            _insert_before_ket(
+            insert_before_ket(
                 content,
                 tokens[rec.close_tok],
                 _field_indent(content, structure, rec),
-                _indent(content, tokens[rec.name_tok].location.start_pos),
+                line_indent(content, tokens[rec.name_tok].location.start_pos),
                 f"{field} = {text}",
             )
         ],
@@ -489,7 +437,7 @@ def _record_text(cu, type_name: str, name: str, eol: str) -> str:
             continue
         text = placeholder(field_kind(comp.n_typ), comp.n_typ, cu.package)
         if text is not None:
-            lines.append(f"{_STEP}{comp.name} = {text}")
+            lines.append(f"{STEP}{comp.name} = {text}")
     lines.append("}")
     return eol.join(lines)
 
@@ -541,11 +489,11 @@ def add_record_edits(
                 "The section is not closed; fix it in the editor."
             )
 
-    eol = _eol(content)
+    eol = line_ending(content)
     if section is None:
-        pos = _doc_end(content)
+        pos = doc_end(content)
         text = _record_text(cu, type_name, name, eol)
-        return _to_utf16(
+        return to_utf16(
             content,
             [
                 TextEdit(
@@ -556,14 +504,14 @@ def add_record_edits(
         )
 
     tokens = structure.tokens
-    closing_indent = _indent(
+    closing_indent = line_indent(
         content, tokens[section.keyword_tok].location.start_pos
     )
-    indent = closing_indent + _STEP
-    return _to_utf16(
+    indent = closing_indent + STEP
+    return to_utf16(
         content,
         [
-            _insert_before_ket(
+            insert_before_ket(
                 content,
                 tokens[section.close_tok],
                 indent,
