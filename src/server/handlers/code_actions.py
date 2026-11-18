@@ -45,10 +45,30 @@ from ..token_utils import uri_from_file
 DID_YOU_MEAN_RE = re.compile(r"unknown symbol (\S+), did you mean (\S+)\?")
 #: Client command that opens a file as a background editor tab.
 OPEN_IN_BACKGROUND_COMMAND = "trlc.openFileInBackground"
+#: Key in the client's ``experimental`` capabilities listing the
+#: client-side commands it registered (see clientCommands.ts).
+CLIENT_COMMANDS_CAPABILITY = "trlcCommands"
+
+
+def _client_runs(ls, command: str) -> bool:
+    """Tell whether the client announced that it can run *command*.
+
+    The server also runs in editors other than VS Code (trlc-lsp wheel),
+    which do not register the extension's commands; offering them a code
+    action that runs one would only fail.
+    """
+    experimental = getattr(ls.client_capabilities, "experimental", None)
+    if isinstance(experimental, dict):
+        commands = experimental.get(CLIENT_COMMANDS_CAPABILITY)
+    else:
+        commands = getattr(experimental, CLIENT_COMMANDS_CAPABILITY, None)
+    return isinstance(commands, (list, tuple)) and command in commands
 
 
 def _open_file_actions(ls, uri: str, diagnostic) -> List[CodeAction]:
     """ "Open <file>" fixes for an unknown symbol declared in a closed file."""
+    if not _client_runs(ls, OPEN_IN_BACKGROUND_COMMAND):
+        return []
     try:
         text = ls.workspace.get_text_document(uri).source
     except OSError:

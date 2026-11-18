@@ -39,6 +39,7 @@ import {
     ServerOptions,
 } from "vscode-languageclient/node";
 
+import { clientCommandsFeature } from "./clientCommands";
 import { createLogger, Logger } from "./log";
 import { OPEN_IN_BACKGROUND_COMMAND, openInBackground } from "./openInBackground";
 import { registerPreview, TrlcPreview } from "./previewPanel";
@@ -318,6 +319,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     // Created before client.start() so the middleware's handleWorkDoneProgress
     // (registered as part of client's options) always finds it set.
     registerStatusBar(context, "extension.showTrlcFilesInScope");
+
+    // Before client.start(): capabilities are sent with `initialize`.
+    client.registerFeature(clientCommandsFeature([OPEN_IN_BACKGROUND_COMMAND]));
 
     try {
         await client.start();

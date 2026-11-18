@@ -10,41 +10,48 @@ All notable changes to the TRLC VSCode Extension are documented here.
 
 - **TRLC preview** — New **TRLC: Open Preview to the Side** command (also an
   editor-title button on `.trlc` files) opens a live, editable view of the
-  active file: sections as headings, one editor per field, and **+ Add
-  record** buttons to add records. Edits go through the normal editor undo
-  stack. The preview turns read-only while the file has syntax or type
-  errors or the parser is catching up; failing checks and missing required
-  values keep it editable.
-- **Preview v2** — The preview gains a sticky, collapsible table of contents
-  (click an entry to scroll to it), required fields marked with `*` and a
-  hint for missing ones, and indented nested sections. Sections can be
-  added (**+ Section**), renamed (pencil button) and dissolved (bin button;
-  their content moves up one level). Records and sections can be moved by
-  drag and drop, with their comments. String components listed in the new
-  `trlcServer.preview.markdownComponents` setting (default `description`)
-  are rendered and edited as GitHub Flavored Markdown in a WYSIWYG editor.
-  Every structural edit is re-checked by the server and refused if it would
-  change records, values or brace balance. Adding records and section
-  edits are bound to the preview state they were made from: an action
-  based on an out-of-date preview is refused ("The preview was out of
-  date; try again.") instead of hitting another section, and the section
-  controls are disabled until the preview has caught up. The table of
-  contents is capped at about a third of the panel height and jumps land
-  below it.
-- **Preview: list fields** — Array components get one editor per element
-  with **+**/**x** buttons; the server writes the brackets and quotes and
-  checks element values and bounds. Previously a value typed into a list
-  field was written without brackets and locked the preview. Table grid
-  lines in Markdown fields are now visible in dark themes.
-- **Preview: reference suggestions** — Reference fields and reference
-  list elements suggest the matching record names while typing (the
-  field's type and its subtypes, from the package and its imports).
-  Components typed as a union (`[A, B]`) are now edited as references.
-- **Hint for records in closed files** — In parse mode `workspace` only
-  open `.trlc` files are parsed, so a record declared in a closed file is
-  an `unknown symbol`. The preview now names the declaring file(s) with an
-  **Open** button instead of the generic read-only banner, and the editor
-  offers the same as a quick fix. The file opens as a background tab.
+  active file next to the source. Edits made in the preview are written
+  back to the file and go through the normal editor undo stack.
+  - **Structure and navigation** — Sections are shown as headings, nested
+    sections indented. A sticky, collapsible table of contents (capped at
+    about a third of the panel height) scrolls to an entry on click.
+  - **Field editing** — Every component has its own editor. Required
+    fields are marked with `*`, with a hint when the value is missing.
+    Array components get one editor per element with **+**/**x** buttons;
+    the server writes the brackets and quotes and checks element values
+    and bounds.
+  - **References** — Reference fields and reference list elements suggest
+    the matching record names while typing (the field's type and its
+    subtypes, from the package and its imports). Components typed as a
+    union (`[A, B]`) are edited as references too.
+  - **Markdown** — String components listed in the new
+    `trlcServer.preview.markdownComponents` setting (default `description`)
+    are rendered and edited as GitHub Flavored Markdown in a WYSIWYG
+    editor.
+  - **Records and sections** — Records are added with **+ Add record**.
+    Sections can be added (**+ Section**), renamed (pencil button) and
+    dissolved (bin button; their content moves up one level). Records and
+    sections can be moved by drag and drop, together with their comments.
+  - **Safe edits** — Every structural edit is re-checked by the server and
+    refused if it would change records, values or brace balance. Adding
+    records and section edits are bound to the preview state they were
+    made from: an action based on an out-of-date preview is refused ("The
+    preview was out of date; try again.") instead of hitting another
+    section, and the section controls are disabled until the preview has
+    caught up.
+  - **Read-only states** — The preview turns read-only while the file has
+    syntax or type errors or the parser is catching up; failing checks and
+    missing required values keep it editable. If the error is a record
+    declared in a closed file (parse mode `workspace` only parses open
+    `.trlc` files), the preview names the declaring file(s) with an
+    **Open** button instead of the generic read-only banner; the file
+    opens as a background tab.
+- **Quick fix for records in closed files** — In parse mode `workspace` a
+  record declared in a closed file is an `unknown symbol`. The editor now
+  offers a quick fix that opens the declaring file as a background tab.
+  The quick fix runs a command of the VS Code extension, so the server
+  offers it only to clients that announce that command
+  (`experimental.trlcCommands`); other editors do not see it.
 
 ---
 

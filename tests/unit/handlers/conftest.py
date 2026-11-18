@@ -159,6 +159,9 @@ class FakeLanguageServer(HandlerRegistryMixin):
     refs: ReferenceResolver = field(init=False)
     bazel_cache: BazelManagerCache = field(default_factory=BazelManagerCache)
     workspace: Any = field(default_factory=_make_workspace_stub)
+    #: lsprotocol ClientCapabilities of the connected client (None: a
+    #: client that announced nothing, e.g. no ``trlcCommands``).
+    client_capabilities: Any = None
     _msgs: list = field(default_factory=list)
     _logs: list = field(default_factory=list)
     _events: list = field(default_factory=list)

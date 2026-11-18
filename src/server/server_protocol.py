@@ -166,5 +166,6 @@ class ServerProtocol(
     refs: ReferenceResolver
     bazel_cache: BazelManagerCache
     workspace: WorkspaceProtocol
+    client_capabilities: Any  # lsprotocol ClientCapabilities (pygls)
     work_done_progress: Any  # pygls WorkDoneProgressManager
     CONFIGURATION_SECTION: str

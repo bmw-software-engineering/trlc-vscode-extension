@@ -109,7 +109,12 @@ backwards compatibility and maps to `parseMode` (`partial` → `workspace`,
 - Find All References
 - Rename Symbol (`parseMode: repo` for a workspace-wide rename; otherwise scope-local)
 - Semantic Tokens (operators)
-- Code Actions (quick fixes for TRLC diagnostics)
+- Code Actions (quick fixes for TRLC diagnostics). The `Open <file>` fix
+  for an unknown record declared in a closed file runs the client-side
+  command `trlc.openFileInBackground` (argument: file URI) and is only
+  offered to a client that lists that command in its
+  `experimental.trlcCommands` client capability, as the VS Code extension
+  does.
 
 ## License
 
