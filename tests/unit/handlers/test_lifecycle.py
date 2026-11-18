@@ -396,6 +396,31 @@ class TestDidOpen:
         warnings = [m for m in server._msgs if "[unterminated" in m.message]
         assert len(warnings) == 1
 
+    def test_invalid_markdown_components_warn_once(self, server, handlers):
+        """A preview.markdownComponents value that is not a list of names
+        falls back to the default; one warning names what was ignored,
+        since the preview would otherwise silently not render Markdown."""
+        # Given: a client config with a string instead of a list
+        server._configuration_response = [
+            {"preview": {"markdownComponents": "rationale"}}
+        ]
+        uri = f"{FOLDER_URI}/a.rsl"
+        server.workspace = _make_workspace({uri: ""})
+
+        # When: a file in that folder is opened
+        _run(handlers["did_open"](server, _open_params(uri)))
+
+        # Then: the default applies, and exactly one warning is shown
+        applied = server.store.get_config_for_uri(FOLDER_URI)
+        assert applied.preview_markdown_components == ("description",)
+        warnings = [
+            m
+            for m in server._msgs
+            if "preview.markdownComponents" in m.message
+            and "'rationale'" in m.message
+        ]
+        assert len(warnings) == 1
+
 
 # pylint: disable-next=too-few-public-methods  # minimal data-holder stand-in; __init__ + window_log_message is the only interface needed
 class _FakeLsForLogging:
@@ -621,6 +646,24 @@ class TestWatchedFilesChange:
         # Then: a lightweight reparse_files wake-up is queued, not "reparse"
         assert ("reparse_files", None, None) in server._events
         assert ("reparse", None, None) not in server._events
+
+    def test_forgets_the_scanned_trlc_file_list(
+        self, server, handlers, monkeypatch
+    ):
+        """A file created, deleted or changed on disk outdates the file
+        list missing_symbols caches for the "declared in a closed file"
+        hint, so the watcher event drops it."""
+        forgotten = []
+        monkeypatch.setattr(
+            lifecycle_mod, "forget_files", lambda: forgotten.append(True)
+        )
+        # When: the client reports a new .trlc file
+        handlers["watched_files"](
+            server,
+            _watched_change(f"{FOLDER_URI}/new.trlc", FileChangeType.Created),
+        )
+        # Then: the cached file list is dropped
+        assert forgotten == [True]
 
     def test_build_file_change_queues_a_full_reparse(self, server, handlers):
         """A BUILD file change can alter the Bazel target graph itself, so

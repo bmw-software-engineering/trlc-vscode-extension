@@ -95,8 +95,158 @@ wording).
 | `Trlc Server > Bazel: Use Shared Server` | `false` | If true, reuse the default Bazel server (faster but may interfere with your build). If false, use a dedicated output_base per workspace. |
 | `Trlc Server > Bazel: Query Timeout Seconds` | `180` | Timeout (seconds) for a single 'bazel query' call. The first query against a fresh/cold Bazel server (the default unless useSharedServer is true) can take much longer than a warm-server query, especially on large repos or slow filesystems. |
 | `Trlc Server > Hover: Description Component` | `description` | Component name whose string value is shown on hover when hovering a reference to a record object (e.g. the target of a derived_from entry). Set to an empty string to disable. Only affects object instances - hovering a type/tuple/enum name always shows its own TRLC RSL doc comment, independent of this setting. |
+| `Trlc Server > Preview: Markdown Components` | `["description"]` | String components rendered and edited as GitHub Flavored Markdown in the TRLC preview. |
 | `Trlc Server > Trace: Server` | `off` | Traces communication between VS Code and the TRLC language server. Set to 'verbose' and check the '[pygls] TrlcLanguageServer' Output channel to diagnose why a file isn't parsing as expected. |
 | `Trlc Server: Log Level` | `warning` | Sets the verbosity of TRLC's diagnostic logging (client and server), shown in the '[pygls] TrlcLanguageServer' output channel and written to a rotating log file. This is separate from Trlc Server > Trace: Server, which only traces the LSP wire protocol. |
+
+## Preview
+
+**TRLC: Open Preview to the Side** (command palette, or the preview button
+in the editor title bar of a `.trlc` file) opens a live view of the active
+`.trlc` file next to the editor. It follows the active `.trlc` editor and
+updates after each reparse of the file (shortly after you stop typing).
+Without a `.trlc` file it shows "Open a .trlc file to preview it."
+
+### Reading
+
+- Sections are shown as headings with one `#` per nesting depth (h1 to h6;
+  deeper levels keep showing all `#`).
+- Click a record's name to jump to it in the editor.
+- Frozen fields are shown read-only.
+- A table of contents at the top lists all sections, indented by nesting
+  depth. It stays visible while you scroll and takes at most about a third
+  of the panel height (a long one scrolls on its own); the arrow button
+  collapses it. Click an entry to scroll to that section, which then starts
+  just below the table of contents.
+- Required fields are marked with `*`. A required field without a value is
+  flagged with a "Required field ... is missing" hint.
+- Nested sections are indented.
+
+### Editing
+
+Edits are applied to the file like keyboard edits: they mark the file dirty
+and can be undone with `Ctrl+Z`.
+
+| Field kind | Editor | Commits when |
+|------------|--------|--------------|
+| String | Multi-line text area | `Ctrl+Enter`, or leaving the field |
+| Integer, decimal, reference, other | Text input | `Enter`, or leaving the field |
+| Boolean, enumeration | Drop-down | Selecting a value |
+| List (array) of the kinds above | One input or drop-down per element, **+** adds one, **x** removes one | Committing an element, or removing one |
+
+- Choosing the blank option on a set optional field removes it; clearing
+  the text of a set optional field and the **x** button next to an
+  optional field do the same. Required fields cannot be removed.
+- Edits are applied one after another. A field edit made while the parser
+  is still catching up with the previous one is sent again automatically
+  once the parse has finished. If the parser is still busy then, the edit
+  is not saved: an error says so, and a Markdown field keeps your text and
+  saves it when you leave the field again.
+- A field edit always goes to the file it was made in, even if the preview
+  has meanwhile followed another editor.
+- Reference fields (and the elements of reference lists) suggest the
+  records they accept while you type: records of the field's type or a
+  subtype (for `[A, B]`, of either), from the file's package and its
+  imports, in the current parse scope. Records of another package are
+  suggested with the package prefix (`Pkg.name`). Typing a name that is
+  not suggested is still possible.
+- In a list, the preview writes the brackets, quotes string elements and
+  checks every element and the number of elements against the type (for
+  example `[1 .. 3]`). An element added with **+** and left empty is
+  dropped. Lists of tuples and nested lists are edited as raw text.
+- Multi-line strings follow TRLC's triple-quote normalisation: leading and
+  trailing whitespace and common indentation are not preserved.
+
+### Adding records
+
+**+ Add record** appears in every section and at file level. Pick a type
+and enter a name; names that differ from an existing one only in case or
+underscores are rejected, as TRLC does. Required components get
+placeholders: `0`, `0.0`, `false`, `""`, `[]`, or the first enumeration
+literal. Required references and lists that need at least one element are
+left out, so the new record shows a TRLC error
+until you fill them in; that error does not make the preview read-only.
+
+### Sections
+
+- **+ Section** (next to **+ Add record**, and at file level) appends an
+  empty section; enter a title and confirm with `Enter` (`Esc` cancels).
+- The pencil button next to a section heading renames it.
+- The bin button dissolves a section: its braces and heading are removed
+  and its content moves up one nesting level. Comments are kept.
+- A section that is still open at the end of the file cannot receive new
+  content until it is closed in the editor.
+- After you add a record or change a section (add, rename, dissolve,
+  move), these buttons and the drag handles are disabled until the preview
+  has been updated. If the file changed in the meantime, the action is
+  refused with "The preview was out of date; try again." and nothing is
+  changed, because it might otherwise hit the wrong section. An action
+  started in a preview that has since switched to another file is
+  cancelled.
+
+### Moving records and sections
+
+Drag the handle (the six-dot grip) of a record or section and drop it on
+one of the drop zones between items, in any section or at file level. The
+item keeps its comments and is re-indented to its new level. A section
+cannot be dropped into itself. Drag and drop is mouse-only; there is no
+keyboard alternative. Dropping outside a drop zone, or pressing `Esc`,
+cancels the move.
+
+### Markdown fields
+
+String components named in `Trlc Server > Preview: Markdown Components`
+are shown as rendered GitHub Flavored Markdown instead of a text area.
+Click the field (or tab into it) to edit it in a WYSIWYG editor with a
+toolbar (bold, italic, strikethrough, heading, bullet and numbered list,
+inline code, code block, link, and tables with add/remove row and
+column). The change is committed when focus
+leaves the field. Links are shown but never followed, and raw HTML is
+shown as text.
+
+- The text is stored in the file as an indented `'''...'''` block.
+- The editor may normalise the Markdown when saving, for example `-` list
+  markers become `*`.
+- Markdown that TRLC cannot store as a string is refused. TRLC strips and
+  dedents triple-quoted strings, so the text is refused when it would not
+  read back unchanged (for example a nested list where every line after
+  the first is indented deeper than the first), or when it contains both
+  `'''` and `"""`. The field then shows "Not saved: ..." and keeps your
+  text so you can fix it.
+
+### Safety net for structural edits
+
+Adding, renaming, dissolving and moving sections and records is checked
+by the server before it is applied: the edit is refused if it would change
+the set of records or their values or leave unbalanced braces. A refused
+edit shows its message as an error notification (Markdown fields also
+show the "Not saved" note) and leaves the file untouched.
+
+### Why the preview can turn read-only
+
+A banner appears, the content stays visible (the last good content while
+waiting for the parser) and inputs are disabled, when:
+
+| Banner | Meaning |
+|--------|---------|
+| File is not part of an active TRLC scope. | The file is outside the current parse scope. |
+| File has errors that prevent parsing; fix them in the editor. | The file has a syntax or type error (for example `x = = 1`, an unclosed `section`, or a value of the wrong type). The records stay visible but cannot be edited until the error is fixed. |
+| Records this file uses are declared in .trlc files that are not open. ... | Parse mode `workspace` parses only open `.trlc` files, and a record this file references (reported as `unknown symbol`) is declared in a closed one. The banner lists each such file with an **Open** button: it opens the file as a background tab (the preview stays on your file), and editing resumes after the reparse. Setting `Trlc Server > Parse Mode` to `repo` avoids this for good. |
+| Records this file uses are declared outside its parse scope: ... | Parse modes `directory` and `bazel` parse only a part of the workspace folder (one directory, or one Bazel target with its dependencies), and a record this file references (reported as `unknown symbol`) is declared outside it. The banner lists each such record with its file. Opening the file does not help here: set `Trlc Server > Parse Mode` to `repo`, or in `bazel` mode add the declaring target to the dependencies. |
+| Waiting for the parser to catch up with your last edit. | A short pause after typing; editing resumes automatically. |
+
+Failing `checks` (user errors and warnings) and records that miss a
+required value do **not** make the preview read-only, so you can fix them
+from the preview.
+
+Errors from a preview edit (for example an invalid integer) are shown as a
+banner above the content; the content stays visible.
+
+In the text editor, the same `unknown symbol` error offers a quick fix
+(light bulb, `Ctrl+.`) **Open <file> (declares <name>)** that opens the
+declaring file as a background tab. The files are found by a plain text
+search for a declaration `Type name {` in the right package, so in rare
+cases (for example an unusual layout) a file may be missed.
 
 ## Commands
 
@@ -107,6 +257,8 @@ Available via `F1` / Command Palette:
   scratch. Use this if the extension isn't starting after an update.
 - **TRLC: Show Output** — open the "[pygls] TrlcLanguageServer" output
   channel (server/client logs and, if enabled, LSP wire trace).
+- **TRLC: Open Preview to the Side** — open the live, editable preview of
+  the active `.trlc` file (see [Preview](#preview)).
 - **TRLC: Show Files In Scope** — list every file in the active file's
   current parse scope; pick one to open it. Also reachable by clicking
   the scope status bar item.

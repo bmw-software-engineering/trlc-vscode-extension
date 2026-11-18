@@ -48,6 +48,7 @@ from lsprotocol.types import (
 
 from ..logging_config import level_from_name, set_log_level
 from ..message_handler import Vscode_Message_Handler
+from ..missing_symbols import forget_files
 from ..parse_context import ParseContext, ParseResult
 from ..server_config import ParseMode, ServerConfig
 from ..server_protocol import ServerProtocol
@@ -181,6 +182,26 @@ def _warn_invalid_rule_classes(ls, config: ServerConfig) -> None:
     )
 
 
+def _warn_invalid_markdown_components(ls, config: ServerConfig) -> None:
+    """Show one warning when ``preview.markdownComponents`` is not a list
+    of component names.
+
+    Mirrors :func:`_warn_invalid_patterns`: :meth:`ServerConfig.from_dict`
+    falls back to the default then, and silently doing so would leave the
+    user wondering why the preview does not render their field as Markdown.
+    """
+    if not config.invalid_markdown_components:
+        return
+    ls.window_show_message(
+        ShowMessageParams(
+            type=MessageType.Warning,
+            message="TRLC: Ignoring preview.markdownComponents (expected a "
+            "list of component names), using the default. Invalid: "
+            + ", ".join(config.invalid_markdown_components),
+        )
+    )
+
+
 def _log_config_applied(
     ls, config: ServerConfig, folder_uri: Optional[str]
 ) -> None:
@@ -291,6 +312,7 @@ def _apply_config_and_warn(
     )
     _warn_invalid_patterns(ls, config)
     _warn_invalid_rule_classes(ls, config)
+    _warn_invalid_markdown_components(ls, config)
     ls.apply_config(config, folder_uri)
     # trlcServer.logLevel is the one setting shared by both the Python
     # LOGGER stream and the TS client's own logger; this is the single
@@ -331,6 +353,9 @@ def on_watched_files_change(ls, params: DidChangeWatchedFilesParams):
     fresh re-walk and _validate_scope's own input-signature comparison
     already pick up the new on-disk state on their own.
     """
+    # A created or deleted .trlc file outdates the file list kept for the
+    # "declared in a closed file" hint (see missing_symbols).
+    forget_files()
     if any(_is_bazel_graph_file(change.uri) for change in params.changes):
         ls.queue_event("reparse")
     else:

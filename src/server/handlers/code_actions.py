@@ -17,7 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
 # *******************************************************************************
-"""Code action handler for quick-fixes (e.g., "did you mean X?" suggestions)."""
+"""Code action handler for quick-fixes.
+
+"did you mean X?" suggestions, and opening an unopened .trlc file that
+declares an unknown symbol (parse mode WORKSPACE parses open files only).
+"""
 
 import re
 from typing import List, Optional
@@ -27,25 +31,83 @@ from lsprotocol.types import (
     CodeAction,
     CodeActionKind,
     CodeActionParams,
+    Command,
     TextDocumentEdit,
     TextEdit,
     VersionedTextDocumentIdentifier,
     WorkspaceEdit,
 )
 
+from ..missing_symbols import files_declaring, scope_label, unknown_symbol
 from ..server_protocol import ServerProtocol
+from ..token_utils import uri_from_file
 
 DID_YOU_MEAN_RE = re.compile(r"unknown symbol (\S+), did you mean (\S+)\?")
+#: Client command that opens a file as a background editor tab.
+OPEN_IN_BACKGROUND_COMMAND = "trlc.openFileInBackground"
+#: Key in the client's ``experimental`` capabilities listing the
+#: client-side commands it registered (see clientCommands.ts).
+CLIENT_COMMANDS_CAPABILITY = "trlcCommands"
+
+
+def _client_runs(ls, command: str) -> bool:
+    """Tell whether the client announced that it can run *command*.
+
+    The server also runs in editors other than VS Code (trlc-lsp wheel),
+    which do not register the extension's commands; offering them a code
+    action that runs one would only fail.
+    """
+    experimental = getattr(ls.client_capabilities, "experimental", None)
+    if isinstance(experimental, dict):
+        commands = experimental.get(CLIENT_COMMANDS_CAPABILITY)
+    else:
+        commands = getattr(experimental, CLIENT_COMMANDS_CAPABILITY, None)
+    return isinstance(commands, (list, tuple)) and command in commands
+
+
+def _open_file_actions(ls, uri: str, diagnostics) -> List[List[CodeAction]]:
+    """Per diagnostic, the "Open <file>" fixes for an unknown symbol
+    declared in a closed file.
+
+    All diagnostics are looked up together, so the folder is scanned
+    once per request however many unknown symbols it carries.
+    """
+    nothing: List[List[CodeAction]] = [[] for _ in diagnostics]
+    if not _client_runs(ls, OPEN_IN_BACKGROUND_COMMAND):
+        return nothing
+    try:
+        text = ls.workspace.get_text_document(uri).source
+    except OSError:
+        return nothing
+    symbols = [unknown_symbol(text, d) for d in diagnostics]
+    found = files_declaring(ls, uri, [s for s in symbols if s is not None])
+    actions = nothing
+    for diagnostic, symbol, fixes in zip(diagnostics, symbols, actions):
+        for path, declared in found.items():
+            if symbol not in declared:
+                continue
+            title = f"Open {scope_label(ls, uri, path)} (declares {symbol[0]})"
+            fixes.append(
+                CodeAction(
+                    title=title,
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    command=Command(
+                        title=title,
+                        command=OPEN_IN_BACKGROUND_COMMAND,
+                        arguments=[uri_from_file(path)],
+                    ),
+                )
+            )
+    return actions
 
 
 def register(server: "ServerProtocol") -> None:
     """Register code action handlers on *server*."""
 
     @server.feature(TEXT_DOCUMENT_CODE_ACTION)
-    # pygls injects the server as the first arg *by parameter name* ("ls"),
-    # so it can't be renamed to "_ls"; this handler just doesn't need it.
     def code_action(
-        ls,  # pylint: disable=unused-argument
+        ls,
         params: CodeActionParams,
     ) -> Optional[List[CodeAction]]:
         """Provide code actions for diagnostics in the range."""
@@ -55,7 +117,10 @@ def register(server: "ServerProtocol") -> None:
         if not params.context.diagnostics:
             return actions
 
-        for diagnostic in params.context.diagnostics:
+        diagnostics = params.context.diagnostics
+        open_fixes = _open_file_actions(ls, uri, diagnostics)
+        for diagnostic, fixes in zip(diagnostics, open_fixes):
+            actions.extend(fixes)
             match = DID_YOU_MEAN_RE.search(diagnostic.message)
             if not match:
                 continue

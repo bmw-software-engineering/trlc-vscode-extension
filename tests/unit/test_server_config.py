@@ -427,3 +427,44 @@ class TestPerFolderConfigResolution:
         store = ContextStore()
         # When/Then: a None folder_uri resolves to the default config
         assert store.get_config_for_uri(None) is store.default_config
+
+
+class TestServerConfigPreviewMarkdown:
+    """Tests for from_dict()'s preview.markdownComponents key."""
+
+    def test_preview_markdown_components_default(self):
+        cfg = ServerConfig.from_dict({})
+        assert cfg.preview_markdown_components == ("description",)
+
+    def test_preview_markdown_components_from_dict(self):
+        cfg = ServerConfig.from_dict(
+            {"preview": {"markdownComponents": ["description", "rationale"]}}
+        )
+        assert cfg.preview_markdown_components == ("description", "rationale")
+
+    def test_preview_markdown_components_invalid_falls_back(self):
+        for bad in ("description", 5, ["ok", 3], None):
+            cfg = ServerConfig.from_dict(
+                {"preview": {"markdownComponents": bad}}
+            )
+            assert cfg.preview_markdown_components == ("description",)
+
+    def test_preview_markdown_components_invalid_values_are_reported(self):
+        # Reported so the caller can warn: the fallback is silent otherwise.
+        for bad, reported in (
+            ("description", ("'description'",)),
+            (5, ("5",)),
+            (["ok", 3, None], ("3", "None")),
+        ):
+            cfg = ServerConfig.from_dict(
+                {"preview": {"markdownComponents": bad}}
+            )
+            assert cfg.invalid_markdown_components == reported
+
+    def test_preview_markdown_components_valid_or_unset_report_nothing(self):
+        for value in (["description", "rationale"], [], None):
+            cfg = ServerConfig.from_dict(
+                {"preview": {"markdownComponents": value}}
+            )
+            assert cfg.invalid_markdown_components == ()
+        assert ServerConfig.from_dict({}).invalid_markdown_components == ()

@@ -78,8 +78,12 @@ def server_env() -> dict:
 
 def initialize_params(workspace: Path) -> types.InitializeParams:
     """Standard ``initialize`` request params rooted at *workspace*."""
+    capabilities = client_capabilities("visual-studio-code")
+    # What the VS Code extension announces (see clientCommands.ts): the
+    # client-side commands the server's code actions may run.
+    capabilities.experimental = {"trlcCommands": ["trlc.openFileInBackground"]}
     return types.InitializeParams(
-        capabilities=client_capabilities("visual-studio-code"),
+        capabilities=capabilities,
         root_uri=workspace.as_uri(),
         workspace_folders=[
             types.WorkspaceFolder(uri=workspace.as_uri(), name=workspace.name)

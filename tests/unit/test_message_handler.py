@@ -195,3 +195,14 @@ class TestVscodeMessageHandler:
         # Then: its severity is Error
         diag = next(iter(mh.diagnostics.values()))[0]
         assert diag.severity == DiagnosticSeverity.Error
+
+    @pytest.mark.parametrize("kind", list(Kind))
+    def test_kind_stored_in_data(self, kind):
+        # Given: a fresh handler
+        mh = Vscode_Message_Handler()
+        loc = _make_location()
+        # When: a diagnostic of each TRLC kind is emitted
+        mh.emit(loc, kind, "msg", fatal=False)
+        # Then: the TRLC kind name travels in the diagnostic's data
+        diag = next(iter(mh.diagnostics.values()))[0]
+        assert diag.data == {"kind": kind.name}

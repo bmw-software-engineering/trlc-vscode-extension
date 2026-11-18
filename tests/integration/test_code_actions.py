@@ -48,7 +48,12 @@ from .content import (
 from .content import (
     TRLC_TEXT as VALID_TEXT,
 )
-from .lsp_helpers import code_action, open_document, wait_for_diagnostics
+from .lsp_helpers import (
+    code_action,
+    open_document,
+    reference_to_closed_record,
+    wait_for_diagnostics,
+)
 
 
 class TestCodeActions:
@@ -117,3 +122,28 @@ class TestCodeActions:
 
         # Then: no code actions are produced
         assert actions == []
+
+    async def test_unknown_symbol_in_unopened_file_offers_open_fix(
+        self, client, workspace, types_uri, sample_uri
+    ):
+        """An unknown symbol declared in a closed .trlc file offers to open it."""
+        # Given: a record declared only in a .trlc file that is not open
+        # (WORKSPACE mode parses open .trlc files only)
+        async with reference_to_closed_record(
+            client, workspace, "unopened_fix", types_uri, sample_uri
+        ) as diags:
+            unknown = next(d for d in diags if "unknown symbol" in d.message)
+
+            # When: code actions are requested for that diagnostic
+            actions = await code_action(
+                client, sample_uri, unknown.range, [unknown]
+            )
+
+        # Then: one action runs the client's open-in-background command
+        (action,) = actions
+        assert action.title == "Open unopened_fix/far.trlc (declares far_away)"
+        # The test client structures this CodeAction as a Command (the
+        # union is ambiguous to its converter) and keeps the nested
+        # command as text; the unit test checks the exact structure.
+        assert "trlc.openFileInBackground" in str(action.command)
+        assert "/unopened_fix/far.trlc" in str(action.command)

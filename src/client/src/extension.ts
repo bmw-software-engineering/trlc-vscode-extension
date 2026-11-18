@@ -32,14 +32,17 @@
 "use strict";
 
 import * as path from "path";
-import { commands, ExtensionContext, ExtensionMode, LogOutputChannel, TextEditor, languages, window, workspace } from "vscode";
+import { commands, ExtensionContext, ExtensionMode, LogOutputChannel, TextEditor, Uri, languages, window, workspace } from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
 } from "vscode-languageclient/node";
 
+import { clientCommandsFeature } from "./clientCommands";
 import { createLogger, Logger } from "./log";
+import { OPEN_IN_BACKGROUND_COMMAND, openInBackground } from "./openInBackground";
+import { registerPreview, TrlcPreview } from "./previewPanel";
 import { ensureDependencies, registerResetCommand } from "./installer";
 import { buildServerEnv, resolveInterpreter } from "./serverEnv";
 import { ScopeStatus, TrlcStatusBarItem } from "./statusBar";
@@ -47,6 +50,8 @@ import { toScopeFileItems } from "./statusBarFormat";
 
 let client: LanguageClient;
 let statusBar: TrlcStatusBarItem;
+/** Registered after client.start(); callers must tolerate it being unset. */
+let preview: TrlcPreview | undefined;
 
 /** Matches trlc-language-configuration.json's `languages[0].id`. */
 const TRLC_LANGUAGE_ID = "TRLC";
@@ -122,6 +127,7 @@ function getClientOptions(channel: LogOutputChannel): LanguageClientOptions {
                 } else {
                     statusBar.setParsing({ active: false });
                     void refreshScopeStatus(window.activeTextEditor);
+                    preview?.refresh();
                 }
             },
         },
@@ -215,6 +221,9 @@ function registerStatusBar(context: ExtensionContext, clickCommandId: string): v
 
     context.subscriptions.push(
         languages.onDidChangeDiagnostics((event) => {
+            if (event.uris.some((uri) => preview?.isPreviewing(uri.toString()))) {
+                preview?.refresh();
+            }
             const editor = window.activeTextEditor;
             if (!editor) {
                 return;
@@ -278,6 +287,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
     context.subscriptions.push(
         commands.registerCommand("extension.showTrlcFilesInScope", showFilesInScope)
     );
+    context.subscriptions.push(
+        // Run by the server's "Open <file>" quick fix for unknown symbols.
+        commands.registerCommand(OPEN_IN_BACKGROUND_COMMAND, (uri: string) =>
+            openInBackground(Uri.parse(uri), window.activeTextEditor?.document.uri)
+        )
+    );
 
     let pythonInterpreter: string;
     try {
@@ -305,6 +320,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     // (registered as part of client's options) always finds it set.
     registerStatusBar(context, "extension.showTrlcFilesInScope");
 
+    // Before client.start(): capabilities are sent with `initialize`.
+    client.registerFeature(clientCommandsFeature([OPEN_IN_BACKGROUND_COMMAND]));
+
     try {
         await client.start();
     } catch (error) {
@@ -315,6 +333,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
         );
         throw error;
     }
+
+    preview = registerPreview(context, client);
 
     // Retries the request that registerStatusBar's initial call likely
     // skipped (client wasn't running yet at that point).

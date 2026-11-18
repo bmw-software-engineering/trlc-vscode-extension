@@ -653,7 +653,9 @@ one warning naming the bad patterns. `bazel.ruleClasses` entries get the same
 treatment: each is validated against a Starlark-identifier pattern (they are
 interpolated unescaped into a `kind()` query — see [Bazel](#bazel)), and
 anything failing is dropped into `invalid_rule_classes` and warned the same
-way.
+way. A `preview.markdownComponents` value that is not a list of strings
+falls back to the default as a whole; what made it unusable is collected into
+`invalid_markdown_components` and warned likewise.
 
 ## ServerProtocol
 
@@ -811,7 +813,69 @@ the server, independent of the grammar.
 | `textDocument/codeAction` | `code_actions.py` | Quick fixes for TRLC diagnostics |
 | `trlc/scopeStatus` | `status.py` | Custom request: scope up-to-date status for the status bar |
 | `trlc/scopeFiles` | `status.py` | Custom request: files in the active file's scope |
+| `trlc/previewModel` | `preview.py` | Custom request: section/record/field tree of a `.trlc` file for the preview |
+| `trlc/previewSetField` | `preview.py` | Custom request: returns a `WorkspaceEdit` that sets or removes one field |
+| `trlc/previewAddRecord` | `preview.py` | Custom request: returns a `WorkspaceEdit` that inserts a new record |
+| `trlc/previewInsertSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that appends an empty section |
+| `trlc/previewRenameSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that retitles a section |
+| `trlc/previewDissolveSection` | `preview.py` | Custom request: returns a `WorkspaceEdit` that removes a section's braces and keeps its content |
+| `trlc/previewMove` | `preview.py` | Custom request: returns a `WorkspaceEdit` that moves a record or section into a section or the file level |
 | `extension.parseAll` command | `lifecycle.py` | Forces full reparse of all contexts |
+
+**Preview edits.** The preview webview never writes files. For an edit, the
+server (`preview_edits.py`) computes a `WorkspaceEdit` from the last parsed
+AST (`preview_scan.py` locates source ranges, `preview_values.py` renders
+values) and returns it as one `TextDocumentEdit` versioned with the buffer
+version the parse matched. `previewController.ts` sends one edit at a time
+(the next request waits until the previous edit was applied) and delegates
+applying to the `applyEdit` dependency injected by `previewPanel.ts`, which
+checks the version (the languageclient converter drops it) and calls
+`workspace.applyEdit`, so it behaves like a keyboard edit (undo, dirty
+state). Every edit message from the webview names the `uri` of the model
+it was made from; a field edit is sent to that document even after the
+preview followed another editor (it is versioned), but no `editRejected` or
+refresh is posted for a document no longer shown. The server refuses edits
+while the last parse is stale (error code `stale`: the controller resends a
+field edit once after the next editable model; if that is stale again, the
+`editRejected` carries `retry` so a Markdown field commits the same text
+again on the next leave. A model that is unavailable for the same reason
+carries `code: "stale"`, so the controller keeps waiting on it but gives
+the held edit up on a locked model or a failed refresh instead of blocking
+the edit queue) or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
+component ... is not defined" (TRLC recovers from syntax errors, so such
+files are still in `all_files`; `Vscode_Message_Handler` puts the TRLC kind in
+`Diagnostic.data`). Failing user checks do not lock the file. A locked file
+still shows its tree with a banner and disabled inputs.
+
+**Structure edits.** `preview_layout.py` locates the source extents of
+sections and records (including their comments) from the token stream.
+`preview_structure.py` builds on it to compute the text edits for insert,
+rename, dissolve and move; a move is one cut plus one paste, re-indented to
+the target level. Every such edit passes through `verify_structure_edit`, a
+runtime guard that re-lexes the old and new text and refuses the edit
+unless the braces stay balanced and the same records with the same
+assignments remain. The four requests share the stale and locked checks of
+the field edits. Section ids are ordinals that renumber after every
+structural edit, so the model carries `version` (the buffer version its
+parse matches) and add record plus the four structure requests must send
+it back as `modelVersion`; the server refuses a mismatch with code
+`outdated` ("The preview was out of date; try again."). The controller
+never resends these id-based intents (on `stale` or `outdated` it shows the
+message and refreshes) and drops one made from a document no longer shown;
+the webview disables structure controls and drags after posting one until
+the next model renders. Unexpected exceptions in these requests are logged
+and answered with an internal-error message. A rejected edit reaches the webview as `editRejected`
+(`previewController.ts`); the controller shows the message through
+`window.showErrorMessage`, and `editRejected` additionally lets Markdown
+fields show an in-place "Not saved" note. Markdown values are written by `format_markdown`
+in `preview_values.py` as indented triple-quoted blocks, and refused when
+TRLC's dedent would alter the text. The webview side is `previewRender.ts`
+(HTML), `previewWebview.ts` (events, forms), `previewDnd.ts` (drag and
+drop) and `previewMarkdown.ts`/`previewMarkdownEditor.ts` (Milkdown). A
+render keeps a mounted Milkdown editor (moves its node into the new tree)
+when the field's document, record, field, value, editability and
+optionality are unchanged and it shows no committed or refused text
+(`planMarkdownReuse`); only new or changed fields mount an editor.
 
 Key handler pattern:
 ```python

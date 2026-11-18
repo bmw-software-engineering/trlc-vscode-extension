@@ -37,6 +37,7 @@ from ..token_utils import (
     get_token,
     lookup_by_name,
     path_from_uri,
+    record_type_satisfies,
     resolve_scope_context,
 )
 
@@ -176,24 +177,6 @@ def _resolve_expected_type(tokens, target_index, symbols, cur_pkg):
     return typ
 
 
-def _matches_expected_type(candidate_type, expected_type) -> bool:
-    """True if a Record_Object's *candidate_type* satisfies *expected_type*.
-
-    *expected_type* may be a single ``Record_Type`` (candidate must be it or
-    an ``extends`` subtype) or a ``Union_Type`` (candidate must satisfy any
-    one of its member types — a field like ``item [FeatReq,
-    AssumedSystemReq]`` legitimately accepts either).
-    """
-    if isinstance(expected_type, trlc.ast.Record_Type):
-        return candidate_type.is_subclass_of(expected_type)
-    if isinstance(expected_type, trlc.ast.Union_Type):
-        return any(
-            candidate_type.is_subclass_of(member)
-            for member in expected_type.types
-        )
-    return True
-
-
 def _package_symbol_labels(pkg, expected_type) -> List[str]:
     """Labels for every symbol in *pkg*, minus Record_Object instances that
     don't satisfy *expected_type* (when one was resolved)."""
@@ -202,7 +185,7 @@ def _package_symbol_labels(pkg, expected_type) -> List[str]:
         if (
             expected_type is not None
             and isinstance(v, trlc.ast.Record_Object)
-            and not _matches_expected_type(v.n_typ, expected_type)
+            and not record_type_satisfies(v.n_typ, expected_type)
         ):
             continue
         labels.append(v.name)

@@ -62,6 +62,7 @@ copy_to_directory(
     name = "extension_dev_dir",
     srcs = [
         "//:extension_bundle",
+        "//:preview_bundle",
         "//:vsix_static_files",
         "//src/server:server_sources",
     ],

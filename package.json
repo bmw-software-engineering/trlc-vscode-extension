@@ -20,6 +20,7 @@
         "trlc-language-configuration.json",
         "docs/assets/BMW_White-Colour_RGB.png",
         "src/client/out/extension.js",
+        "src/client/out/preview.js",
         "src/server/**/*.py"
     ],
     "license": "GPL-3.0-or-later",
@@ -63,6 +64,7 @@
         "typescript-eslint": "^8.64.0"
     },
     "dependencies": {
+        "@milkdown/kit": "7.22.3",
         "vscode-languageclient": "^10.1.0"
     },
     "scripts": {
@@ -107,8 +109,28 @@
             {
                 "command": "extension.showTrlcFilesInScope",
                 "title": "TRLC: Show Files In Scope"
+            },
+            {
+                "command": "extension.openTrlcPreview",
+                "title": "TRLC: Open Preview to the Side",
+                "icon": "$(open-preview)"
             }
         ],
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "extension.openTrlcPreview",
+                    "when": "resourceExtname == .trlc"
+                }
+            ],
+            "editor/title": [
+                {
+                    "command": "extension.openTrlcPreview",
+                    "when": "resourceExtname == .trlc",
+                    "group": "navigation"
+                }
+            ]
+        },
         "configuration": {
             "type": "object",
             "title": "trlc-vscode-extension server configuration",
@@ -181,6 +203,13 @@
                     "type": "string",
                     "default": "description",
                     "description": "Component name whose string value is shown on hover when hovering a reference to a record object (e.g. the target of a derived_from entry). Set to an empty string to disable. Only affects object instances - hovering a type/tuple/enum name always shows its own TRLC RSL doc comment, independent of this setting."
+                },
+                "trlcServer.preview.markdownComponents": {
+                    "scope": "resource",
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "default": ["description"],
+                    "description": "String components rendered and edited as GitHub Flavored Markdown in the TRLC preview."
                 }
             }
         },

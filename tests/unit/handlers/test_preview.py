@@ -1,0 +1,652 @@
+# *******************************************************************************
+# TRLC VSCode Extension
+# Copyright (C) 2026 Bayerische Motoren Werke Aktiengesellschaft (BMW AG)
+#
+# This file is part of the TRLC VSCode Extension.
+#
+# The TRLC VSCode Extension is free software: you can redistribute it
+# and/or modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation, either version 3 of
+# the License, or (at your option) any later version.
+#
+# The TRLC VSCode Extension is distributed in the hope that it will be
+# useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+# of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
+"""Unit tests for server.handlers.preview."""
+
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=redefined-outer-name  # pytest fixture names must match
+
+import os
+from types import SimpleNamespace
+
+import pytest
+
+from server.handlers import preview as preview_mod
+from server.message_handler import Vscode_Message_Handler
+from server.parse_context import ParseResult
+from server.server_config import ParseMode, ServerConfig
+from server.token_utils import encode_scope_id, uri_from_file
+from tests.unit.handlers.conftest import FakeVSM, _parse_trlc
+
+NOT_PARSED = "File has errors that prevent parsing; fix them in the editor."
+
+LOCK_RSL = """\
+package Lock
+
+type Rec {
+    x Integer
+    y Integer
+    o optional Integer
+}
+
+checks Rec {
+    x > 0, error "x must be positive"
+}
+"""
+
+
+def _open_real(fake_ls, tmp_path, content):
+    """Really parse *content* (error recovery on, as in production) and
+    open it in its own scope carrying that parse's real diagnostics."""
+    vmh = Vscode_Message_Handler()
+    stab, all_files, _, trlc_file = _parse_trlc(
+        LOCK_RSL, "lock.rsl", content, "lock.trlc", tmp_path, mh=vmh
+    )
+    vsm = FakeVSM(stab=stab, all_files=all_files)
+    uri = uri_from_file(trlc_file)
+    fake_ls.open_scope("lock-scope", uri, content, vsm)
+    fake_ls.get_context_for_uri(uri).result = ParseResult(
+        vsm=vsm, diagnostics=vmh.diagnostics
+    )
+    return uri, vmh.diagnostics
+
+
+def _set_o(uri, value="7"):
+    return preview_mod.PreviewSetFieldParams(
+        uri=uri, record="r", field="o", value=value
+    )
+
+
+@pytest.fixture
+def handlers(fake_ls):
+    preview_mod.register(fake_ls)
+    return (
+        fake_ls.get_handler(preview_mod.PREVIEW_MODEL_METHOD),
+        fake_ls.get_handler(preview_mod.PREVIEW_SET_FIELD_METHOD),
+        fake_ls.get_handler(preview_mod.PREVIEW_ADD_RECORD_METHOD),
+    )
+
+
+def _set(uri, value="9"):
+    return preview_mod.PreviewSetFieldParams(
+        uri=uri, record="example", field="x", value=value
+    )
+
+
+class TestPreviewModel:
+    def test_model_for_open_file(self, fake_ls, handlers, trlc_path):
+        model_fn, _, _ = handlers
+        uri = uri_from_file(trlc_path)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["nodes"][0]["name"] == "example"
+
+    def test_model_carries_the_buffer_version(
+        self, fake_ls, handlers, trlc_path
+    ):
+        model_fn, _, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_versions[uri] = 42  # pylint: disable=protected-access
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["version"] == 42
+
+    def test_model_unavailable_for_unparsed_file(
+        self, fake_ls, handlers, trlc_path
+    ):
+        model_fn, _, _ = handlers
+        broken = os.path.join(os.path.dirname(trlc_path), "broken.trlc")
+        uri = uri_from_file(broken)
+        fake_ls.open_scope(
+            "test-scope",
+            uri,
+            "package Types\nMyRecord {{{",
+            fake_ls.get_context_for_uri(uri_from_file(trlc_path))
+            .snapshot()
+            .vsm,
+        )
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert "errors" in model["reason"]
+
+    def test_stale_model_carries_the_stale_code(
+        self, fake_ls, handlers, trlc_path
+    ):
+        model_fn, _, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_contents[uri] += "\n"  # pylint: disable=protected-access
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert model["code"] == "stale"
+
+    def test_model_unavailable_without_scope(self, fake_ls, handlers):
+        model_fn, _, _ = handlers
+        model = model_fn(
+            fake_ls,
+            preview_mod.PreviewModelParams(uri="file:///nowhere.trlc"),
+        )
+        assert model["editable"] is False
+        assert "scope" in model["reason"]
+        assert "code" not in model
+
+
+class TestPreviewSetField:
+    def test_set_field_returns_workspace_edit(
+        self, fake_ls, handlers, trlc_path
+    ):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_versions[uri] = 42  # pylint: disable=protected-access
+        result = set_fn(fake_ls, _set(uri))
+        (change,) = result["edit"]["documentChanges"]
+        # Versioned against the buffer the parse matched.
+        assert change["textDocument"] == {"uri": uri, "version": 42}
+        assert change["edits"][0]["newText"] == "9"
+        assert "changes" not in result["edit"]
+
+    def test_set_field_rejected_when_stale(self, fake_ls, handlers, trlc_path):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_contents[uri] += "\n"  # pylint: disable=protected-access
+        result = set_fn(fake_ls, _set(uri))
+        assert "error" in result
+        assert result["code"] == "stale"
+        assert "edit" not in result
+
+    def test_edit_carries_the_version_of_the_compared_content(
+        self, fake_ls, handlers, trlc_path
+    ):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        content = fake_ls._uri_contents[uri]  # pylint: disable=protected-access
+
+        class _ChangedAfterRead:  # pylint: disable=too-few-public-methods  # document stub
+            """A buffer that a didChange bumps right after its read."""
+
+            version = 1
+
+            @property
+            def source(self):
+                self.version = 2
+                return content
+
+        document = _ChangedAfterRead()
+        fake_ls.workspace.get_text_document.side_effect = lambda _uri: document
+        result = set_fn(fake_ls, _set(uri))
+        (change,) = result["edit"]["documentChanges"]
+        assert change["textDocument"]["version"] == 1
+
+    def test_other_errors_carry_no_code(self, fake_ls, handlers, trlc_path):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        result = set_fn(fake_ls, _set(uri, value="abc"))
+        assert "error" in result
+        assert "code" not in result
+
+    def test_set_field_user_error_is_returned(
+        self, fake_ls, handlers, trlc_path
+    ):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        result = set_fn(fake_ls, _set(uri, value="abc"))
+        assert "error" in result
+
+
+# pylint: disable-next=too-few-public-methods  # single scenario
+class TestPreviewAddRecord:
+    def test_add_record_returns_edit_or_error(
+        self, fake_ls, handlers, trlc_path
+    ):
+        _, _, add_fn = handlers
+        uri = uri_from_file(trlc_path)
+        ok = add_fn(
+            fake_ls,
+            preview_mod.PreviewAddRecordParams(
+                uri=uri,
+                sectionId=None,
+                type="MyRecord",
+                name="fresh",
+                modelVersion=1,
+            ),
+        )
+        assert "edit" in ok
+        change = ok["edit"]["documentChanges"][0]
+        assert change["textDocument"] == {"uri": uri, "version": 1}
+        dup = add_fn(
+            fake_ls,
+            preview_mod.PreviewAddRecordParams(
+                uri=uri,
+                sectionId=None,
+                type="MyRecord",
+                name="example",
+                modelVersion=1,
+            ),
+        )
+        assert "error" in dup
+
+
+class TestPreviewLockRule:
+    """Read-only rule, exercised with REAL error-recovering parses:
+    syntax/semantic (SYS_ERROR) errors lock the file, except a missing
+    required component; failing user checks never lock."""
+
+    def test_syntax_error_locks_but_shows_records(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, set_fn, add_fn = handlers
+        content = (
+            "package Lock\n"
+            "Rec r { x = 1 y = 2 }\n"
+            "Rec bad {\n    x = = 1\n    y = 2\n}\n"
+        )
+        uri, _ = _open_real(fake_ls, tmp_path, content)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert model["reason"] == NOT_PARSED
+        assert [n["name"] for n in model["nodes"]] == ["r", "bad"]
+        assert set_fn(fake_ls, _set_o(uri)) == {"error": NOT_PARSED}
+        added = add_fn(
+            fake_ls,
+            preview_mod.PreviewAddRecordParams(
+                uri=uri,
+                sectionId=None,
+                type="Rec",
+                name="fresh",
+                modelVersion=1,
+            ),
+        )
+        assert added == {"error": NOT_PARSED}
+
+    def test_unclosed_section_builds_locked_model(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, set_fn, _ = handlers
+        content = (
+            'package Lock\nsection "A" {\nRec r {\n    x = 1\n    y = 2\n}\n'
+        )
+        uri, _ = _open_real(fake_ls, tmp_path, content)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        (section,) = model["nodes"]
+        assert section["closed"] is False
+        assert [c["name"] for c in section["children"]] == ["r"]
+        assert set_fn(fake_ls, _set_o(uri)) == {"error": NOT_PARSED}
+
+    def test_missing_required_component_stays_editable(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, set_fn, _ = handlers
+        content = "package Lock\nRec r {\n    x = 1\n}\n"
+        uri, diagnostics = _open_real(fake_ls, tmp_path, content)
+        # Pins TRLC's wording: if it changes, the exemption would silently
+        # stop working, so fail here instead.
+        messages = [d.message for ds in diagnostics.values() for d in ds]
+        assert any(
+            m.startswith(preview_mod.REQUIRED_COMPONENT_PREFIX)
+            for m in messages
+        ), messages
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is True
+        result = set_fn(
+            fake_ls,
+            preview_mod.PreviewSetFieldParams(
+                uri=uri, record="r", field="y", value="2"
+            ),
+        )
+        assert "edit" in result, result
+
+    def test_failing_user_check_stays_editable(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, set_fn, _ = handlers
+        content = "package Lock\nRec r {\n    x = 0\n    y = 2\n}\n"
+        uri, diagnostics = _open_real(fake_ls, tmp_path, content)
+        kinds = [d.data["kind"] for ds in diagnostics.values() for d in ds]
+        assert "USER_ERROR" in kinds, kinds
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is True
+        assert "edit" in set_fn(fake_ls, _set_o(uri))
+
+
+SECTIONED = (
+    'package Lock\nsection "A" {\nRec r { x = 1 y = 2 }\n}\nsection "B" {\n}\n'
+)
+
+
+def _call(fake_ls, method, **params):
+    """Call *method*; ``modelVersion`` defaults to the stub's version 1,
+    ``modelVersion=_MISSING`` leaves it out."""
+    preview_mod.register(fake_ls)
+    params.setdefault("modelVersion", 1)
+    if params["modelVersion"] is _MISSING:
+        del params["modelVersion"]
+    return fake_ls.get_handler(method)(fake_ls, SimpleNamespace(**params))
+
+
+_MISSING = object()
+
+
+def _edits(result):
+    assert "edit" in result, result
+    return result["edit"]["documentChanges"][0]["edits"]
+
+
+class TestPreviewStructure:
+    @pytest.fixture
+    def uri(self, fake_ls, tmp_path):
+        return _open_real(fake_ls, tmp_path, SECTIONED)[0]
+
+    def test_insert_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert 'section "New"' in _edits(result)[0]["newText"]
+
+    def test_rename_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            sectionId=0,
+            title="Z",
+        )
+        assert _edits(result)
+
+    def test_dissolve_section(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+        )
+        assert _edits(result)
+
+    def test_move_record(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=SimpleNamespace(kind="record", name="r"),
+            targetSectionId=1,
+            before=None,
+        )
+        assert _edits(result)
+
+    def test_move_section_with_before(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=SimpleNamespace(kind="section", sectionId=1),
+            targetSectionId=None,
+            before=SimpleNamespace(kind="section", sectionId=0),
+        )
+        assert _edits(result)
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            None,
+            SimpleNamespace(kind="bogus"),
+            SimpleNamespace(kind="record"),
+            SimpleNamespace(kind="record", name=3),
+            SimpleNamespace(kind="section", sectionId="1"),
+            SimpleNamespace(kind="section", sectionId=True),
+        ],
+    )
+    def test_malformed_item(self, fake_ls, uri, item):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_MOVE_METHOD,
+            uri=uri,
+            item=item,
+            targetSectionId=None,
+            before=None,
+        )
+        assert result == {"error": "Invalid request."}
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"sectionId": "0", "title": "x"},
+            {"sectionId": True, "title": "x"},
+            {"sectionId": 0, "title": 5},
+            {"sectionId": 0},
+        ],
+    )
+    def test_malformed_rename(self, fake_ls, uri, params):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            **params,
+        )
+        assert result == {"error": "Invalid request."}
+
+    def test_malformed_target_and_before(self, fake_ls, uri):
+        item = SimpleNamespace(kind="record", name="r")
+        for extra in (
+            {"targetSectionId": "1", "before": None},
+            {"targetSectionId": None, "before": "x"},
+        ):
+            assert _call(
+                fake_ls,
+                preview_mod.PREVIEW_MOVE_METHOD,
+                uri=uri,
+                item=item,
+                **extra,
+            ) == {"error": "Invalid request."}
+
+    def test_locked_file(self, fake_ls, tmp_path):
+        uri, _ = _open_real(
+            fake_ls, tmp_path, "package Lock\nRec bad {\n    x = = 1\n}\n"
+        )
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert result == {"error": NOT_PARSED}
+
+    def test_stale_buffer(self, fake_ls, uri):
+        # pylint: disable-next=protected-access
+        fake_ls._uri_contents[uri] += "\n"
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+            uri=uri,
+            sectionId=None,
+            title="New",
+        )
+        assert result["code"] == "stale"
+
+    @pytest.mark.parametrize(
+        "method,params",
+        [
+            (
+                preview_mod.PREVIEW_INSERT_SECTION_METHOD,
+                {"sectionId": None, "title": "New"},
+            ),
+            (
+                preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+                {"sectionId": 0, "title": "Z"},
+            ),
+            (preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD, {"sectionId": 1}),
+            (
+                preview_mod.PREVIEW_MOVE_METHOD,
+                {
+                    "item": SimpleNamespace(kind="record", name="r"),
+                    "targetSectionId": 1,
+                    "before": None,
+                },
+            ),
+            (
+                preview_mod.PREVIEW_ADD_RECORD_METHOD,
+                {"sectionId": 1, "type": "Rec", "name": "fresh"},
+            ),
+        ],
+    )
+    def test_model_version_must_match(self, fake_ls, uri, method, params):
+        # pylint: disable-next=protected-access
+        fake_ls._uri_versions[uri] = 5
+        assert _call(fake_ls, method, uri=uri, modelVersion=4, **params) == {
+            "error": "The preview was out of date; try again.",
+            "code": "outdated",
+        }
+        assert _edits(
+            _call(fake_ls, method, uri=uri, modelVersion=5, **params)
+        )
+
+    @pytest.mark.parametrize("version", [_MISSING, "1", True, 1.0])
+    def test_missing_or_invalid_model_version(self, fake_ls, uri, version):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+            modelVersion=version,
+        )
+        assert result == {"error": "Invalid request."}
+
+    def test_unexpected_exception_is_reported(
+        self, fake_ls, uri, monkeypatch, caplog
+    ):
+        def boom(*_args):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(preview_mod, "dissolve_section_edits", boom)
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_DISSOLVE_SECTION_METHOD,
+            uri=uri,
+            sectionId=1,
+        )
+        assert result == {
+            "error": "Internal error; see the TRLC output channel."
+        }
+        assert "boom" in caplog.text
+
+    def test_edit_error_is_reported(self, fake_ls, uri):
+        result = _call(
+            fake_ls,
+            preview_mod.PREVIEW_RENAME_SECTION_METHOD,
+            uri=uri,
+            sectionId=99,
+            title="x",
+        )
+        assert "error" in result
+        assert result["error"] != "Invalid request."
+
+
+def test_handler_model_uses_config_markdown_components(
+    fake_ls, handlers, tmp_path
+):
+    model_fn, _, _ = handlers
+    rsl = "package P\ntype T {\n    description String\n    x Integer\n}\n"
+    src = 'package P\nT r { description = "hi" x = 1 }\n'
+    stab, all_files, _, trlc_file = _parse_trlc(
+        rsl, "p.rsl", src, "p.trlc", tmp_path
+    )
+    vsm = FakeVSM(stab=stab, all_files=all_files)
+    uri = uri_from_file(trlc_file)
+    fake_ls.open_scope("md-scope", uri, src, vsm)
+    fake_ls.get_context_for_uri(uri).result = ParseResult(
+        vsm=vsm, diagnostics={}
+    )
+    fake_ls.config = ServerConfig(preview_markdown_components=("description",))
+    model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+    fields = {f["name"]: f for f in model["nodes"][0]["fields"]}
+    assert fields["description"]["markdown"] is True
+    assert fields["x"]["markdown"] is False
+
+
+REF_RSL = "package Ref\ntype Rec {\n    x Integer\n    other optional Rec\n}\n"
+REF_TRLC = "package Ref\nRec r {\n    x = 1\n    other = far_away\n}\n"
+
+
+def _open_unknown_reference(fake_ls, tmp_path, mode):
+    """Really parse a file referencing the unknown record ``far_away`` and
+    open it in a *mode* scope of the workspace folder *tmp_path*."""
+    vmh = Vscode_Message_Handler()
+    stab, all_files, _, trlc_file = _parse_trlc(
+        REF_RSL, "ref.rsl", REF_TRLC, "ref.trlc", tmp_path, mh=vmh
+    )
+    vsm = FakeVSM(stab=stab, all_files=all_files)
+    uri = uri_from_file(trlc_file)
+    fake_ls.config = ServerConfig(parse_mode=mode)
+    scope_id = encode_scope_id(uri_from_file(str(tmp_path)), "scope")
+    fake_ls.open_scope(scope_id, uri, REF_TRLC, vsm)
+    fake_ls.get_context_for_uri(uri).result = ParseResult(
+        vsm=vsm, diagnostics=vmh.diagnostics
+    )
+    return uri
+
+
+class TestRecordOutsideTheScope:
+    """Parse modes "directory" and "bazel" parse a part of the workspace
+    folder only, so a record declared outside it is an unknown symbol that
+    cannot be fixed in the editor: the banner says where it is declared."""
+
+    @pytest.mark.parametrize(
+        "mode,hint",
+        [
+            (ParseMode.DIRECTORY, 'parse mode "directory"'),
+            (ParseMode.BAZEL, 'parse mode "bazel"'),
+        ],
+    )
+    def test_names_the_declaring_file_and_the_parse_mode(
+        self, fake_ls, handlers, tmp_path, mode, hint
+    ):
+        model_fn, _, _ = handlers
+        (tmp_path / "other").mkdir()
+        (tmp_path / "other" / "far.trlc").write_text(
+            "package Ref\nRec far_away {\n    x = 2\n}\n", encoding="utf-8"
+        )
+        uri = _open_unknown_reference(fake_ls, tmp_path, mode)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert "far_away (other/far.trlc)" in model["reason"]
+        assert hint in model["reason"]
+        # Opening the file would not bring it into the scope: no button.
+        assert model["openFiles"] == []
+
+    def test_record_declared_nowhere_keeps_the_generic_reason(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, _, _ = handlers
+        uri = _open_unknown_reference(fake_ls, tmp_path, ParseMode.DIRECTORY)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert model["reason"] == NOT_PARSED
+
+    def test_repo_mode_keeps_the_generic_reason(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, _, _ = handlers
+        (tmp_path / "other").mkdir()
+        (tmp_path / "other" / "far.trlc").write_text(
+            "package Ref\nRec far_away {\n    x = 2\n}\n", encoding="utf-8"
+        )
+        uri = _open_unknown_reference(fake_ls, tmp_path, ParseMode.REPO)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["reason"] == NOT_PARSED

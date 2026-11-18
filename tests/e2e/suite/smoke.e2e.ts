@@ -85,6 +85,33 @@ async function waitForDiagnostics(
     });
 }
 
+function tabLabels(): string[] {
+    return vscode.window.tabGroups.all.flatMap(group => group.tabs.map(tab => tab.label));
+}
+
+async function waitForTab(label: string, timeoutMs = 10000): Promise<void> {
+    if (tabLabels().includes(label)) {
+        return;
+    }
+
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            disposable.dispose();
+            reject(
+                new Error(`Timed out waiting for a tab labelled "${label}", got: ${JSON.stringify(tabLabels())}`)
+            );
+        }, timeoutMs);
+
+        const disposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+            if (tabLabels().includes(label)) {
+                clearTimeout(timer);
+                disposable.dispose();
+                resolve();
+            }
+        });
+    });
+}
+
 suite("TRLC extension e2e smoke", () => {
     const [workspaceFolder] = vscode.workspace.workspaceFolders ?? [];
     let scenarios: SmokeScenarios;
@@ -112,6 +139,7 @@ suite("TRLC extension e2e smoke", () => {
         for (const expected of [
             "extension.parseAll",
             "extension.resetState",
+            "extension.openTrlcPreview",
         ]) {
             assert.ok(
                 commands.includes(expected),
@@ -167,5 +195,28 @@ suite("TRLC extension e2e smoke", () => {
                 diagnostics.map(d => d.severity)
             )}`
         );
+    });
+
+    test("the preview command opens a preview tab for the active .trlc file", async () => {
+        const typesUri = vscode.Uri.joinPath(workspaceFolder.uri, scenarios.completionDotTrigger.typesFile);
+        const sampleUri = vscode.Uri.joinPath(workspaceFolder.uri, scenarios.completionDotTrigger.sampleFile);
+
+        await vscode.workspace.openTextDocument(typesUri);
+        const document = await vscode.workspace.openTextDocument(sampleUri);
+        await vscode.window.showTextDocument(document);
+        await waitForDiagnostics(sampleUri);
+
+        await vscode.commands.executeCommand("extension.openTrlcPreview");
+
+        // The webview tab appears asynchronously after the command returns.
+        const label = `Preview ${path.basename(sampleUri.fsPath)}`;
+        await waitForTab(label);
+    });
+
+    test("the Markdown components setting is contributed with its default", () => {
+        const value = vscode.workspace
+            .getConfiguration("trlcServer")
+            .get<string[]>("preview.markdownComponents");
+        assert.deepStrictEqual(value, ["description"]);
     });
 });
