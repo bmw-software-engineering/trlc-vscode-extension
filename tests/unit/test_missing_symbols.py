@@ -24,6 +24,7 @@
 import os
 from types import SimpleNamespace
 
+import pytest
 from lsprotocol.types import Diagnostic, Position, Range
 
 from server import missing_symbols
@@ -32,6 +33,7 @@ from server.file_handler import File_Handler
 from server.missing_symbols import (
     _declarations,
     declaring_files,
+    files_outside_scope,
     forget_files,
     package_of,
     unknown_symbol,
@@ -185,3 +187,25 @@ def test_changed_exclude_patterns_are_not_served_from_the_cache(tmp_path):
     excluding = ServerConfig(exclude_patterns=("^sys$",))
     ls.get_config_for_uri = lambda _uri: excluding
     assert not declaring_files(ls, uri, SOURCE, [QUALIFIED])
+
+
+@pytest.mark.parametrize("mode", [ParseMode.DIRECTORY, ParseMode.BAZEL])
+def test_files_outside_scope_skips_the_parsed_files(tmp_path, mode):
+    ls, root, uri = _setup(tmp_path, mode)
+    parsed = [
+        os.path.join(root, "swe", "swe.trlc"),
+        os.path.join(root, "swe", "local.trlc"),
+    ]
+    found = files_outside_scope(
+        ls, uri, SOURCE, [QUALIFIED, UNQUALIFIED], parsed
+    )
+    # local_one is declared in a parsed file: unknown for another reason.
+    assert {normalize_fs_path(k): v for k, v in found.items()} == {
+        normalize_fs_path(os.path.join(root, "sys", "tsc.trlc")): ["tsc_diag"],
+    }
+
+
+@pytest.mark.parametrize("mode", [ParseMode.WORKSPACE, ParseMode.REPO])
+def test_files_outside_scope_only_in_partial_scope_modes(tmp_path, mode):
+    ls, _, uri = _setup(tmp_path, mode)
+    assert not files_outside_scope(ls, uri, SOURCE, [QUALIFIED], [])

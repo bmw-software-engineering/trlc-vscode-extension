@@ -16,12 +16,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
-"""Find unopened .trlc files that declare a symbol TRLC reports unknown.
+"""Find unparsed .trlc files that declare a symbol TRLC reports unknown.
 
 In parse mode WORKSPACE only open .trlc files are parsed, so a record
 declared in a file that is not open is an "unknown symbol" error. This
 text-only scan (no parse) names the files that would resolve it, for
-the preview's hint and the editor's quick fix.
+the preview's hint and the editor's quick fix. Parse modes DIRECTORY and
+BAZEL leave files outside the directory or Bazel target unparsed; the
+same scan names those for the preview's hint.
 """
 
 import os
@@ -235,9 +237,31 @@ def files_declaring(
         return {}
     opened = {normalize_fs_path(path_from_uri(u)) for u in ls.fh.snapshot()}
     folder = path_from_uri(decode_scope_id(scope_id)[0])
+    return _scan(folder, config.exclude_patterns, opened, wanted)
+
+
+def _scan(
+    folder: str,
+    exclude_patterns: Iterable[str],
+    skip: "set[str]",
+    wanted: "List[Tuple[str, str]]",
+) -> "Dict[str, List[Tuple[str, str]]]":
+    """The .trlc files under *folder* declaring the *wanted* symbols.
+
+    Args:
+        folder: Root folder to search.
+        exclude_patterns: Regular expressions matched against directory
+            names.
+        skip: Normalized paths of files to leave out.
+        wanted: ``(name, package)`` pairs to look for.
+
+    Returns:
+        A dict from file path to the wanted pairs it declares, in the
+        order of *wanted*.
+    """
     result: Dict[str, List[Tuple[str, str]]] = {}
-    for path in _known_trlc_files(folder, config.exclude_patterns):
-        if normalize_fs_path(path) in opened:
+    for path in _known_trlc_files(folder, exclude_patterns):
+        if normalize_fs_path(path) in skip:
             continue
         try:
             package, names = _declarations(path)
@@ -271,13 +295,64 @@ def declaring_files(
         A dict from file path to the wanted names it declares; empty
         if there is nothing to find or the mode is not WORKSPACE.
     """
-    wanted = [
+    return _names(
+        files_declaring(ls, uri, _unknown_symbols(text, diagnostics))
+    )
+
+
+def files_outside_scope(
+    ls, uri: str, text: str, diagnostics, parsed_paths: Iterable[str]
+) -> "Dict[str, List[str]]":
+    """Files outside the parse scope declaring the unknown symbols.
+
+    Parse modes DIRECTORY and BAZEL parse a part of the workspace folder
+    only (a directory, a Bazel target with its dependencies), so a record
+    declared elsewhere in the folder is an "unknown symbol". Opening such
+    a file does not bring it into the scope, unlike in mode WORKSPACE
+    (see :func:`declaring_files`).
+
+    Args:
+        ls: Language server (provides config and store).
+        uri: URI of the file with the diagnostics.
+        text: Source text of that file.
+        diagnostics: Diagnostics of the file; only unknown-symbol ones
+            are considered.
+        parsed_paths: Paths of the files parsed in the scope of *uri*.
+
+    Returns:
+        A dict from file path to the wanted names it declares; empty
+        if there is nothing to find or the mode is neither DIRECTORY
+        nor BAZEL.
+    """
+    config = ls.get_config_for_uri(uri)
+    scope_id = ls.store.scope_id_for_uri(uri)
+    wanted = _unknown_symbols(text, diagnostics)
+    if (
+        not wanted
+        or config.parse_mode not in (ParseMode.DIRECTORY, ParseMode.BAZEL)
+        or scope_id is None
+    ):
+        return {}
+    parsed = {normalize_fs_path(path) for path in parsed_paths}
+    folder = path_from_uri(decode_scope_id(scope_id)[0])
+    return _names(_scan(folder, config.exclude_patterns, parsed, wanted))
+
+
+def _unknown_symbols(text: str, diagnostics) -> "List[Tuple[str, str]]":
+    """The ``(name, package)`` pairs of the unknown-symbol *diagnostics*."""
+    return [
         found
         for found in (unknown_symbol(text, d) for d in diagnostics)
         if found is not None
     ]
-    result: Dict[str, List[str]] = {}
-    for path, symbols in files_declaring(ls, uri, wanted).items():
-        # Same name wanted from two packages: listed once.
-        result[path] = list(dict.fromkeys(name for name, _ in symbols))
-    return result
+
+
+def _names(
+    found: "Dict[str, List[Tuple[str, str]]]",
+) -> "Dict[str, List[str]]":
+    """Reduce the declared ``(name, package)`` pairs per file to names."""
+    # Same name wanted from two packages: listed once.
+    return {
+        path: list(dict.fromkeys(name for name, _ in symbols))
+        for path, symbols in found.items()
+    }

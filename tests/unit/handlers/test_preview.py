@@ -30,8 +30,8 @@ import pytest
 from server.handlers import preview as preview_mod
 from server.message_handler import Vscode_Message_Handler
 from server.parse_context import ParseResult
-from server.server_config import ServerConfig
-from server.token_utils import uri_from_file
+from server.server_config import ParseMode, ServerConfig
+from server.token_utils import encode_scope_id, uri_from_file
 from tests.unit.handlers.conftest import FakeVSM, _parse_trlc
 
 NOT_PARSED = "File has errors that prevent parsing; fix them in the editor."
@@ -578,3 +578,75 @@ def test_handler_model_uses_config_markdown_components(
     fields = {f["name"]: f for f in model["nodes"][0]["fields"]}
     assert fields["description"]["markdown"] is True
     assert fields["x"]["markdown"] is False
+
+
+REF_RSL = "package Ref\ntype Rec {\n    x Integer\n    other optional Rec\n}\n"
+REF_TRLC = "package Ref\nRec r {\n    x = 1\n    other = far_away\n}\n"
+
+
+def _open_unknown_reference(fake_ls, tmp_path, mode):
+    """Really parse a file referencing the unknown record ``far_away`` and
+    open it in a *mode* scope of the workspace folder *tmp_path*."""
+    vmh = Vscode_Message_Handler()
+    stab, all_files, _, trlc_file = _parse_trlc(
+        REF_RSL, "ref.rsl", REF_TRLC, "ref.trlc", tmp_path, mh=vmh
+    )
+    vsm = FakeVSM(stab=stab, all_files=all_files)
+    uri = uri_from_file(trlc_file)
+    fake_ls.config = ServerConfig(parse_mode=mode)
+    scope_id = encode_scope_id(uri_from_file(str(tmp_path)), "scope")
+    fake_ls.open_scope(scope_id, uri, REF_TRLC, vsm)
+    fake_ls.get_context_for_uri(uri).result = ParseResult(
+        vsm=vsm, diagnostics=vmh.diagnostics
+    )
+    return uri
+
+
+class TestRecordOutsideTheScope:
+    """Parse modes "directory" and "bazel" parse a part of the workspace
+    folder only, so a record declared outside it is an unknown symbol that
+    cannot be fixed in the editor: the banner says where it is declared."""
+
+    @pytest.mark.parametrize(
+        "mode,hint",
+        [
+            (ParseMode.DIRECTORY, 'parse mode "directory"'),
+            (ParseMode.BAZEL, 'parse mode "bazel"'),
+        ],
+    )
+    def test_names_the_declaring_file_and_the_parse_mode(
+        self, fake_ls, handlers, tmp_path, mode, hint
+    ):
+        model_fn, _, _ = handlers
+        (tmp_path / "other").mkdir()
+        (tmp_path / "other" / "far.trlc").write_text(
+            "package Ref\nRec far_away {\n    x = 2\n}\n", encoding="utf-8"
+        )
+        uri = _open_unknown_reference(fake_ls, tmp_path, mode)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert "far_away (other/far.trlc)" in model["reason"]
+        assert hint in model["reason"]
+        # Opening the file would not bring it into the scope: no button.
+        assert model["openFiles"] == []
+
+    def test_record_declared_nowhere_keeps_the_generic_reason(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, _, _ = handlers
+        uri = _open_unknown_reference(fake_ls, tmp_path, ParseMode.DIRECTORY)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert model["reason"] == NOT_PARSED
+
+    def test_repo_mode_keeps_the_generic_reason(
+        self, fake_ls, handlers, tmp_path
+    ):
+        model_fn, _, _ = handlers
+        (tmp_path / "other").mkdir()
+        (tmp_path / "other" / "far.trlc").write_text(
+            "package Ref\nRec far_away {\n    x = 2\n}\n", encoding="utf-8"
+        )
+        uri = _open_unknown_reference(fake_ls, tmp_path, ParseMode.REPO)
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["reason"] == NOT_PARSED

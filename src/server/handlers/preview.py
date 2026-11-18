@@ -39,7 +39,11 @@ from lsprotocol.types import (
     WorkspaceEdit,
 )
 
-from ..missing_symbols import declaring_files, scope_label
+from ..missing_symbols import (
+    declaring_files,
+    files_outside_scope,
+    scope_label,
+)
 from ..parse_guard import normalize_fs_path
 from ..preview_edits import (
     PreviewEditError,
@@ -55,6 +59,7 @@ from ..preview_structure import (
     move_edits,
     rename_section_edits,
 )
+from ..server_config import ParseMode
 from ..server_protocol import ServerProtocol
 from ..token_utils import path_from_uri, uri_from_file
 
@@ -73,6 +78,22 @@ _NOT_OPEN = (
     'open. In parse mode "workspace" only open .trlc files are parsed: '
     'open them, or set trlcServer.parseMode to "repo".'
 )
+#: Lead of the reason for records declared outside a partial parse scope;
+#: followed by "name (file), ..." and the hint of the parse mode.
+_OUT_OF_SCOPE = "Records this file uses are declared outside its parse scope: "
+_OUT_OF_SCOPE_HINT = {
+    ParseMode.DIRECTORY: (
+        'In parse mode "directory" only the files of the same directory '
+        'are parsed: set trlcServer.parseMode to "repo".'
+    ),
+    ParseMode.BAZEL: (
+        'In parse mode "bazel" only the sources of the Bazel target of '
+        "this file and its dependencies are parsed: add the declaring target "
+        'to its dependencies, or set trlcServer.parseMode to "repo".'
+    ),
+}
+#: How many out-of-scope records the reason lists before it cuts off.
+_OUT_OF_SCOPE_LISTED = 5
 _INVALID = "Invalid request."
 _STALE = "Waiting for the parser to catch up with your last edit."
 _OUTDATED = "The preview was out of date; try again."
@@ -141,6 +162,8 @@ class _Target:
     version: Optional[int]
     #: The errors of the file that lock the preview (none: editable).
     locking: list = field(default_factory=list)
+    #: Paths of all files parsed in the scope of the file.
+    scope_files: tuple = ()
 
     @property
     def locked(self) -> bool:
@@ -224,7 +247,8 @@ def _resolve(ls, uri: str):
         if parsed.lexer.content != source:
             return None, (_STALE, STALE_CODE)
     locking = _locking_errors(snapshot.diagnostics, path)
-    return _Target(parsed, version, locking), None
+    scope_files = tuple(snapshot.vsm.all_files)
+    return _Target(parsed, version, locking, scope_files), None
 
 
 def _error(reason: str, code: Optional[str] = None) -> dict:
@@ -442,6 +466,41 @@ def _unopened_declarations(ls, uri: str, target: _Target) -> list:
     ]
 
 
+def _out_of_scope_reason(ls, uri: str, target: _Target) -> Optional[str]:
+    """Reason for unknown symbols declared outside a partial parse scope.
+
+    Args:
+        ls: The language server.
+        uri: URI of the previewed file.
+        target: The resolved target, whose locking errors name the symbols.
+
+    Returns:
+        The reason naming each record with its declaring file and how
+        the parse mode can include it, or None if no file outside the
+        scope declares an unknown symbol (parse modes "directory" and
+        "bazel" only).
+    """
+    found = files_outside_scope(
+        ls,
+        uri,
+        target.parsed.lexer.content,
+        target.locking,
+        target.scope_files,
+    )
+    records = [
+        f"{name} ({scope_label(ls, uri, path)})"
+        for path, names in found.items()
+        for name in names
+    ]
+    if not records:
+        return None
+    listed = ", ".join(records[:_OUT_OF_SCOPE_LISTED])
+    if len(records) > _OUT_OF_SCOPE_LISTED:
+        listed += ", ..."
+    hint = _OUT_OF_SCOPE_HINT[ls.get_config_for_uri(uri).parse_mode]
+    return f"{_OUT_OF_SCOPE}{listed}. {hint}"
+
+
 def _model(ls, uri: str, target: _Target) -> dict:
     """Build the preview model of a resolved target.
 
@@ -472,6 +531,10 @@ def _model(ls, uri: str, target: _Target) -> dict:
         if open_files:
             model["reason"] = _NOT_OPEN
             model["openFiles"] = open_files
+        else:
+            model["reason"] = (
+                _out_of_scope_reason(ls, uri, target) or _NOT_PARSED
+            )
     # The buffer version the parse matches: id-based requests send it back.
     model["version"] = target.version
     return model

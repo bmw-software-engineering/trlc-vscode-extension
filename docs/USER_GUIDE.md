@@ -232,6 +232,7 @@ waiting for the parser) and inputs are disabled, when:
 | File is not part of an active TRLC scope. | The file is outside the current parse scope. |
 | File has errors that prevent parsing; fix them in the editor. | The file has a syntax or type error (for example `x = = 1`, an unclosed `section`, or a value of the wrong type). The records stay visible but cannot be edited until the error is fixed. |
 | Records this file uses are declared in .trlc files that are not open. ... | Parse mode `workspace` parses only open `.trlc` files, and a record this file references (reported as `unknown symbol`) is declared in a closed one. The banner lists each such file with an **Open** button: it opens the file as a background tab (the preview stays on your file), and editing resumes after the reparse. Setting `Trlc Server > Parse Mode` to `repo` avoids this for good. |
+| Records this file uses are declared outside its parse scope: ... | Parse modes `directory` and `bazel` parse only a part of the workspace folder (one directory, or one Bazel target with its dependencies), and a record this file references (reported as `unknown symbol`) is declared outside it. The banner lists each such record with its file. Opening the file does not help here: set `Trlc Server > Parse Mode` to `repo`, or in `bazel` mode add the declaring target to the dependencies. |
 | Waiting for the parser to catch up with your last edit. | A short pause after typing; editing resumes automatically. |
 
 Failing `checks` (user errors and warnings) and records that miss a

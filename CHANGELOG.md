@@ -45,7 +45,9 @@ All notable changes to the TRLC VSCode Extension are documented here.
     declared in a closed file (parse mode `workspace` only parses open
     `.trlc` files), the preview names the declaring file(s) with an
     **Open** button instead of the generic read-only banner; the file
-    opens as a background tab.
+    opens as a background tab. In parse modes `directory` and `bazel`,
+    where the record lies outside the parsed directory or Bazel target,
+    the banner names the record with its file and how to include it.
 - **Quick fix for records in closed files** — In parse mode `workspace` a
   record declared in a closed file is an `unknown symbol`. The editor now
   offers a quick fix that opens the declaring file as a background tab.
