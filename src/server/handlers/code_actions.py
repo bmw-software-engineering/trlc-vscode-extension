@@ -38,7 +38,7 @@ from lsprotocol.types import (
     WorkspaceEdit,
 )
 
-from ..missing_symbols import declaring_files, scope_label
+from ..missing_symbols import files_declaring, scope_label, unknown_symbol
 from ..server_protocol import ServerProtocol
 from ..token_utils import uri_from_file
 
@@ -65,29 +65,40 @@ def _client_runs(ls, command: str) -> bool:
     return isinstance(commands, (list, tuple)) and command in commands
 
 
-def _open_file_actions(ls, uri: str, diagnostic) -> List[CodeAction]:
-    """ "Open <file>" fixes for an unknown symbol declared in a closed file."""
+def _open_file_actions(ls, uri: str, diagnostics) -> List[List[CodeAction]]:
+    """Per diagnostic, the "Open <file>" fixes for an unknown symbol
+    declared in a closed file.
+
+    All diagnostics are looked up together, so the folder is scanned
+    once per request however many unknown symbols it carries.
+    """
+    nothing: List[List[CodeAction]] = [[] for _ in diagnostics]
     if not _client_runs(ls, OPEN_IN_BACKGROUND_COMMAND):
-        return []
+        return nothing
     try:
         text = ls.workspace.get_text_document(uri).source
     except OSError:
-        return []
-    actions = []
-    for path, names in declaring_files(ls, uri, text, [diagnostic]).items():
-        title = f"Open {scope_label(ls, uri, path)} (declares {names[0]})"
-        actions.append(
-            CodeAction(
-                title=title,
-                kind=CodeActionKind.QuickFix,
-                diagnostics=[diagnostic],
-                command=Command(
+        return nothing
+    symbols = [unknown_symbol(text, d) for d in diagnostics]
+    found = files_declaring(ls, uri, [s for s in symbols if s is not None])
+    actions = nothing
+    for diagnostic, symbol, fixes in zip(diagnostics, symbols, actions):
+        for path, declared in found.items():
+            if symbol not in declared:
+                continue
+            title = f"Open {scope_label(ls, uri, path)} (declares {symbol[0]})"
+            fixes.append(
+                CodeAction(
                     title=title,
-                    command=OPEN_IN_BACKGROUND_COMMAND,
-                    arguments=[uri_from_file(path)],
-                ),
+                    kind=CodeActionKind.QuickFix,
+                    diagnostics=[diagnostic],
+                    command=Command(
+                        title=title,
+                        command=OPEN_IN_BACKGROUND_COMMAND,
+                        arguments=[uri_from_file(path)],
+                    ),
+                )
             )
-        )
     return actions
 
 
@@ -106,8 +117,10 @@ def register(server: "ServerProtocol") -> None:
         if not params.context.diagnostics:
             return actions
 
-        for diagnostic in params.context.diagnostics:
-            actions.extend(_open_file_actions(ls, uri, diagnostic))
+        diagnostics = params.context.diagnostics
+        open_fixes = _open_file_actions(ls, uri, diagnostics)
+        for diagnostic, fixes in zip(diagnostics, open_fixes):
+            actions.extend(fixes)
             match = DID_YOU_MEAN_RE.search(diagnostic.message)
             if not match:
                 continue

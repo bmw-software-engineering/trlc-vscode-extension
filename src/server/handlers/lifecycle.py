@@ -48,6 +48,7 @@ from lsprotocol.types import (
 
 from ..logging_config import level_from_name, set_log_level
 from ..message_handler import Vscode_Message_Handler
+from ..missing_symbols import forget_files
 from ..parse_context import ParseContext, ParseResult
 from ..server_config import ParseMode, ServerConfig
 from ..server_protocol import ServerProtocol
@@ -331,6 +332,9 @@ def on_watched_files_change(ls, params: DidChangeWatchedFilesParams):
     fresh re-walk and _validate_scope's own input-signature comparison
     already pick up the new on-disk state on their own.
     """
+    # A created or deleted .trlc file outdates the file list kept for the
+    # "declared in a closed file" hint (see missing_symbols).
+    forget_files()
     if any(_is_bazel_graph_file(change.uri) for change in params.changes):
         ls.queue_event("reparse")
     else:

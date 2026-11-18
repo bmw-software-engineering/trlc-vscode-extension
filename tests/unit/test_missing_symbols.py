@@ -26,11 +26,13 @@ from types import SimpleNamespace
 
 from lsprotocol.types import Diagnostic, Position, Range
 
+from server import missing_symbols
 from server.context_store import ContextStore
 from server.file_handler import File_Handler
 from server.missing_symbols import (
     _declarations,
     declaring_files,
+    forget_files,
     package_of,
     unknown_symbol,
 )
@@ -142,4 +144,44 @@ def test_declaring_files_finds_unopened_files(tmp_path):
 
 def test_declaring_files_only_in_workspace_mode(tmp_path):
     ls, _, uri = _setup(tmp_path, ParseMode.REPO)
+    assert not declaring_files(ls, uri, SOURCE, [QUALIFIED])
+
+
+def _count_walks(monkeypatch):
+    walks = []
+    real_walk = os.walk
+
+    def counting_walk(top, *args, **kwargs):
+        walks.append(top)
+        return real_walk(top, *args, **kwargs)
+
+    monkeypatch.setattr(missing_symbols.os, "walk", counting_walk)
+    return walks
+
+
+def test_declaring_files_walks_the_folder_once(tmp_path, monkeypatch):
+    ls, _, uri = _setup(tmp_path)
+    walks = _count_walks(monkeypatch)
+    first = declaring_files(ls, uri, SOURCE, [QUALIFIED])
+    assert declaring_files(ls, uri, SOURCE, [QUALIFIED]) == first
+    assert len(walks) == 1
+
+
+def test_forget_files_makes_new_files_visible(tmp_path):
+    ls, root, uri = _setup(tmp_path)
+    declaring_files(ls, uri, SOURCE, [QUALIFIED])
+    added = os.path.join(root, "sys", "added.trlc")
+    _write(added, "package SysArchItems\nDiagReq tsc_diag { }\n")
+
+    forget_files()
+
+    found = declaring_files(ls, uri, SOURCE, [QUALIFIED])
+    assert normalize_fs_path(added) in {normalize_fs_path(p) for p in found}
+
+
+def test_changed_exclude_patterns_are_not_served_from_the_cache(tmp_path):
+    ls, _, uri = _setup(tmp_path)
+    assert declaring_files(ls, uri, SOURCE, [QUALIFIED])
+    excluding = ServerConfig(exclude_patterns=("^sys$",))
+    ls.get_config_for_uri = lambda _uri: excluding
     assert not declaring_files(ls, uri, SOURCE, [QUALIFIED])

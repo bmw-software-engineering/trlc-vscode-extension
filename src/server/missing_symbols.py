@@ -49,6 +49,11 @@ _QUALIFIER_RE = re.compile(r"([A-Za-z]\w*)\s*\.\s*$")
 
 #: path -> (mtime_ns, size, package, declared record names)
 _CACHE: Dict[str, Tuple[int, int, Optional[str], frozenset]] = {}
+#: (folder, exclude patterns) -> its .trlc files, kept until
+#: :func:`forget_files` so a request does not walk the folder again.
+_FILES: Dict[Tuple[str, Tuple[str, ...]], List[str]] = {}
+#: Bumped by :func:`forget_files`; a walk that began before is not kept.
+_FILES_EPOCH = [0]
 
 
 def package_of(text: str) -> Optional[str]:
@@ -119,6 +124,41 @@ def _trlc_files(folder: str, exclude_patterns: Iterable[str]) -> List[str]:
     return found
 
 
+def forget_files() -> None:
+    """Drop the cached .trlc file lists.
+
+    Called when files changed on disk (see
+    ``lifecycle.on_watched_files_change``), so the next lookup walks the
+    folder again.
+    """
+    _FILES_EPOCH[0] += 1
+    _FILES.clear()
+
+
+def _known_trlc_files(
+    folder: str, exclude_patterns: Iterable[str]
+) -> List[str]:
+    """:func:`_trlc_files`, walking the folder only once until
+    :func:`forget_files`.
+
+    Args:
+        folder: Root folder to walk.
+        exclude_patterns: Regular expressions matched against directory
+            names.
+
+    Returns:
+        The file paths in sorted directory-walk order.
+    """
+    key = (folder, tuple(exclude_patterns))
+    files = _FILES.get(key)
+    if files is None:
+        epoch = _FILES_EPOCH[0]
+        files = _trlc_files(folder, exclude_patterns)
+        if epoch == _FILES_EPOCH[0]:
+            _FILES[key] = files
+    return files
+
+
 def unknown_symbol(text: str, diagnostic) -> Optional[Tuple[str, str]]:
     """(name, package) of an "unknown symbol" *diagnostic* in *text*.
 
@@ -166,6 +206,51 @@ def scope_label(ls, uri: str, path: str) -> str:
     return os.path.relpath(path, folder).replace(os.sep, "/")
 
 
+def files_declaring(
+    ls, uri: str, wanted: "List[Tuple[str, str]]"
+) -> "Dict[str, List[Tuple[str, str]]]":
+    """Unopened .trlc files declaring the *wanted* symbols.
+
+    Empty unless *uri* is parsed in parse mode WORKSPACE (the only mode
+    that leaves .trlc files of the scope unparsed).
+
+    Args:
+        ls: Language server (provides config, store and open files).
+        uri: URI of the file that uses the symbols.
+        wanted: ``(name, package)`` pairs as returned by
+            :func:`unknown_symbol`.
+
+    Returns:
+        A dict from file path to the wanted pairs it declares, in the
+        order of *wanted*; empty if there is nothing to find or the mode
+        is not WORKSPACE.
+    """
+    config = ls.get_config_for_uri(uri)
+    scope_id = ls.store.scope_id_for_uri(uri)
+    if (
+        not wanted
+        or config.parse_mode != ParseMode.WORKSPACE
+        or scope_id is None
+    ):
+        return {}
+    opened = {normalize_fs_path(path_from_uri(u)) for u in ls.fh.snapshot()}
+    folder = path_from_uri(decode_scope_id(scope_id)[0])
+    result: Dict[str, List[Tuple[str, str]]] = {}
+    for path in _known_trlc_files(folder, config.exclude_patterns):
+        if normalize_fs_path(path) in opened:
+            continue
+        try:
+            package, names = _declarations(path)
+        except OSError:
+            continue
+        for symbol in wanted:
+            if symbol[1] == package and symbol[0] in names:
+                declared = result.setdefault(path, [])
+                if symbol not in declared:
+                    declared.append(symbol)
+    return result
+
+
 def declaring_files(
     ls, uri: str, text: str, diagnostics
 ) -> "Dict[str, List[str]]":
@@ -186,30 +271,13 @@ def declaring_files(
         A dict from file path to the wanted names it declares; empty
         if there is nothing to find or the mode is not WORKSPACE.
     """
-    config = ls.get_config_for_uri(uri)
-    scope_id = ls.store.scope_id_for_uri(uri)
-    if config.parse_mode != ParseMode.WORKSPACE or scope_id is None:
-        return {}
     wanted = [
         found
         for found in (unknown_symbol(text, d) for d in diagnostics)
         if found is not None
     ]
-    if not wanted:
-        return {}
-    opened = {normalize_fs_path(path_from_uri(u)) for u in ls.fh.snapshot()}
-    folder = path_from_uri(decode_scope_id(scope_id)[0])
     result: Dict[str, List[str]] = {}
-    for path in _trlc_files(folder, config.exclude_patterns):
-        if normalize_fs_path(path) in opened:
-            continue
-        try:
-            package, names = _declarations(path)
-        except OSError:
-            continue
-        for name, wanted_package in wanted:
-            if package == wanted_package and name in names:
-                result.setdefault(path, [])
-                if name not in result[path]:
-                    result[path].append(name)
+    for path, symbols in files_declaring(ls, uri, wanted).items():
+        # Same name wanted from two packages: listed once.
+        result[path] = list(dict.fromkeys(name for name, _ in symbols))
     return result

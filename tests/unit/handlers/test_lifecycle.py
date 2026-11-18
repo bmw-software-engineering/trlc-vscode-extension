@@ -622,6 +622,24 @@ class TestWatchedFilesChange:
         assert ("reparse_files", None, None) in server._events
         assert ("reparse", None, None) not in server._events
 
+    def test_forgets_the_scanned_trlc_file_list(
+        self, server, handlers, monkeypatch
+    ):
+        """A file created, deleted or changed on disk outdates the file
+        list missing_symbols caches for the "declared in a closed file"
+        hint, so the watcher event drops it."""
+        forgotten = []
+        monkeypatch.setattr(
+            lifecycle_mod, "forget_files", lambda: forgotten.append(True)
+        )
+        # When: the client reports a new .trlc file
+        handlers["watched_files"](
+            server,
+            _watched_change(f"{FOLDER_URI}/new.trlc", FileChangeType.Created),
+        )
+        # Then: the cached file list is dropped
+        assert forgotten == [True]
+
     def test_build_file_change_queues_a_full_reparse(self, server, handlers):
         """A BUILD file change can alter the Bazel target graph itself, so
         it gets the full ``reparse`` (which clears bazel_cache, forcing the

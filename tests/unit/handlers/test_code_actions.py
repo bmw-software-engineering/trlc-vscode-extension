@@ -195,3 +195,56 @@ def test_open_command_not_offered_to_a_client_that_cannot_run_it(
 
     # Then: no action is offered
     assert actions is None
+
+
+def test_open_command_per_diagnostic_from_a_single_folder_scan(
+    fake_ls, tmp_path, monkeypatch
+):
+    """Several unknown symbols in one request scan the folder once, and
+    each diagnostic gets the fix for the file declaring its own symbol."""
+    # Given: two unknown symbols declared in two different closed files
+    code_actions.register(fake_ls)
+    handler = fake_ls.get_handler("textDocument/codeAction")
+    fake_ls.client_capabilities = ClientCapabilities(
+        experimental={"trlcCommands": ["trlc.openFileInBackground"]}
+    )
+    (tmp_path / "far.trlc").write_text(
+        "package P\nT far_away { }\n", encoding="utf-8"
+    )
+    (tmp_path / "near.trlc").write_text(
+        "package P\nT near_by { }\n", encoding="utf-8"
+    )
+    source = "package P\nT here { a = far_away\n b = near_by }\n"
+    uri = (tmp_path / "here.trlc").as_uri()
+    fake_ls.open_scope(tmp_path.as_uri(), uri, source, vsm=None)
+    fake_ls.fh.update_files(uri, source)
+
+    def unknown(line, character, name):
+        pos = Position(line=line, character=character)
+        return Diagnostic(
+            range=Range(start=pos, end=pos), message=f"unknown symbol {name}"
+        )
+
+    diagnostics = [unknown(1, 13, "far_away"), unknown(2, 5, "near_by")]
+    params = CodeActionParams(
+        text_document=TextDocumentIdentifier(uri=uri),
+        range=diagnostics[0].range,
+        context=CodeActionContext(diagnostics=diagnostics),
+    )
+    scans = []
+    real_scan = code_actions.files_declaring
+    monkeypatch.setattr(
+        code_actions,
+        "files_declaring",
+        lambda *args: scans.append(args) or real_scan(*args),
+    )
+
+    # When: code actions are requested for both diagnostics
+    actions = handler(fake_ls, params)
+
+    # Then: one scan, and one fix per diagnostic for its own file
+    assert len(scans) == 1
+    assert [(a.title, a.diagnostics) for a in actions] == [
+        ("Open far.trlc (declares far_away)", [diagnostics[0]]),
+        ("Open near.trlc (declares near_by)", [diagnostics[1]]),
+    ]
