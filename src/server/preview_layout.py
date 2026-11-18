@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Layout helpers for structural preview edits.
 
 Extents say which text belongs to a record or section (including the

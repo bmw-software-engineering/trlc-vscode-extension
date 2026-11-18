@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Text edits for preview changes: set a field value, add a record.
 
 All positions come from the TRLC tokens of the parsed file, so the

@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Unit tests for server.preview_values."""
 
 # pylint: disable=missing-function-docstring,redefined-outer-name

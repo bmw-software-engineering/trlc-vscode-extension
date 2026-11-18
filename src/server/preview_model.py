@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Builds the JSON-ready preview model of a parsed TRLC file."""
 
 from typing import Optional

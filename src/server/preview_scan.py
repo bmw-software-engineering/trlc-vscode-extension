@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Token-stream scanner locating sections, records and field assignments.
 
 Structure is recognised through the ``ast_link`` the TRLC parser sets on

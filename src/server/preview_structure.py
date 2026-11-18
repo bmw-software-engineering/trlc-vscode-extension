@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Structural preview edits: insert, rename, dissolve sections; move items.
 
 Every edit is applied in memory and checked by

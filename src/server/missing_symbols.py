@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with TRLC. If not, see <https://www.gnu.org/licenses/>.
+# *******************************************************************************
 """Find unparsed .trlc files that declare a symbol TRLC reports unknown.
 
 In parse mode WORKSPACE only open .trlc files are parsed, so a record
