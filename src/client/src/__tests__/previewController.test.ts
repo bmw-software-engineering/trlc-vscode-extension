@@ -25,6 +25,7 @@ import * as sinon from "sinon";
 import {
     BUSY_MESSAGE,
     editMatchesVersions,
+    LOCKED_MESSAGE,
     PreviewController,
     PreviewDeps,
     SWITCHED_MESSAGE,
@@ -416,14 +417,55 @@ describe("PreviewController", () => {
             sinon.assert.notCalled(deps.showError);
         });
 
-        it("a non-editable model does not trigger the resend", async () => {
+        it("a locked model ends a waiting stale edit instead of holding the queue", async () => {
+            const { deps, post, ctl, edits, models } = await ready();
+            edits.onFirstCall().resolves({ error: "wait", code: "stale" });
+            edits.resolves({ edit: {} });
+
+            const first = ctl.handleMessage(set("a"));
+            const second = ctl.handleMessage(set("b"));
+            await tick();
+            models.resolves({ ...MODEL, editable: false, reason: "File has errors" });
+            await ctl.refresh();
+            await Promise.all([first, second]);
+
+            // "a" is given up (never resent); "b" is no longer blocked.
+            assert.deepStrictEqual(
+                edits.getCalls().map((c) => c.args[1].value),
+                ["a", "b"]
+            );
+            sinon.assert.calledWith(deps.showError, LOCKED_MESSAGE);
+            sinon.assert.calledWith(post, {
+                type: "editRejected",
+                record: "R",
+                field: "f",
+                value: "a",
+                message: LOCKED_MESSAGE,
+            });
+        });
+
+        it("a failed refresh ends a waiting stale edit", async () => {
+            const { deps, ctl, edits, models } = await ready();
+            edits.resolves({ error: "wait", code: "stale" });
+
+            const pending = ctl.handleMessage(set("a"));
+            await tick();
+            models.rejects(new Error("server gone"));
+            await ctl.refresh();
+            await pending;
+
+            sinon.assert.calledOnce(edits);
+            sinon.assert.calledWith(deps.showError, BUSY_MESSAGE);
+        });
+
+        it("a stale model does not trigger the resend", async () => {
             const { ctl, edits, models } = await ready();
             edits.onFirstCall().resolves({ error: "wait", code: "stale" });
             edits.onSecondCall().resolves({ edit: {} });
 
             const pending = ctl.handleMessage(set("a"));
             await tick();
-            models.resolves({ ...MODEL, editable: false, reason: "Waiting" });
+            models.resolves({ ...MODEL, editable: false, reason: "Waiting", code: "stale" });
             await ctl.refresh();
             await tick();
             sinon.assert.calledOnce(edits);

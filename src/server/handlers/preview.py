@@ -212,12 +212,17 @@ def _resolve(ls, uri: str):
         return None, (_NOT_PARSED, None)
     try:
         document = ls.workspace.get_text_document(uri)
+        # Version first: didChange updates the document on another thread,
+        # so a change landing between the two reads must leave the edits
+        # stamped with the older version (the client then rejects them)
+        # rather than with a version the content was never compared to.
+        version = document.version
+        source = document.source
     except OSError:
         version = None  # no live buffer to compare against; trust the AST
     else:
-        if parsed.lexer.content != document.source:
+        if parsed.lexer.content != source:
             return None, (_STALE, STALE_CODE)
-        version = document.version
     locking = _locking_errors(snapshot.diagnostics, path)
     return _Target(parsed, version, locking), None
 
@@ -492,7 +497,12 @@ def register(server: "ServerProtocol") -> None:
         """
         target, failure = _resolve(ls, params.uri)
         if target is None:
-            return unavailable_model(params.uri, failure[0])
+            model = unavailable_model(params.uri, failure[0])
+            if failure[1] is not None:
+                # Lets the client tell "parser is catching up" (an edit
+                # may wait for the next model) from a file that is locked.
+                model["code"] = failure[1]
+            return model
         return _model(ls, params.uri, target)
 
     @server.feature(PREVIEW_SET_FIELD_METHOD)

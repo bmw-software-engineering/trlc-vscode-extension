@@ -123,6 +123,16 @@ class TestPreviewModel:
         assert model["editable"] is False
         assert "errors" in model["reason"]
 
+    def test_stale_model_carries_the_stale_code(
+        self, fake_ls, handlers, trlc_path
+    ):
+        model_fn, _, _ = handlers
+        uri = uri_from_file(trlc_path)
+        fake_ls._uri_contents[uri] += "\n"  # pylint: disable=protected-access
+        model = model_fn(fake_ls, preview_mod.PreviewModelParams(uri=uri))
+        assert model["editable"] is False
+        assert model["code"] == "stale"
+
     def test_model_unavailable_without_scope(self, fake_ls, handlers):
         model_fn, _, _ = handlers
         model = model_fn(
@@ -131,6 +141,7 @@ class TestPreviewModel:
         )
         assert model["editable"] is False
         assert "scope" in model["reason"]
+        assert "code" not in model
 
 
 class TestPreviewSetField:
@@ -155,6 +166,29 @@ class TestPreviewSetField:
         assert "error" in result
         assert result["code"] == "stale"
         assert "edit" not in result
+
+    def test_edit_carries_the_version_of_the_compared_content(
+        self, fake_ls, handlers, trlc_path
+    ):
+        _, set_fn, _ = handlers
+        uri = uri_from_file(trlc_path)
+        content = fake_ls._uri_contents[uri]  # pylint: disable=protected-access
+
+        class _ChangedAfterRead:  # pylint: disable=too-few-public-methods  # document stub
+            """A buffer that a didChange bumps right after its read."""
+
+            version = 1
+
+            @property
+            def source(self):
+                self.version = 2
+                return content
+
+        document = _ChangedAfterRead()
+        fake_ls.workspace.get_text_document.side_effect = lambda _uri: document
+        result = set_fn(fake_ls, _set(uri))
+        (change,) = result["edit"]["documentChanges"]
+        assert change["textDocument"]["version"] == 1
 
     def test_other_errors_carry_no_code(self, fake_ls, handlers, trlc_path):
         _, set_fn, _ = handlers

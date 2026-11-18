@@ -36,7 +36,7 @@ from server.token_utils import decode_scope_id, path_from_uri
 UNKNOWN_SYMBOL_RE = re.compile(r"^unknown symbol ([A-Za-z]\w*)")
 # Strings and comments are blanked out before looking for declarations.
 _NOISE_RE = re.compile(
-    r"'''.*?'''|\"\"\".*?\"\"\"|\"(?:\.|[^\"\\n])*\"|//[^\n]*|/\*.*?\*/",
+    r"'''.*?'''|\"\"\".*?\"\"\"|\"(?:\\.|[^\"\\\n])*\"|//[^\n]*|/\*.*?\*/",
     re.S,
 )
 _PACKAGE_RE = re.compile(r"\bpackage\s+([A-Za-z][\w.]*)")

@@ -92,6 +92,8 @@ export interface PreviewModel {
     editable: boolean;
     /** Why the file cannot be edited; null when editable. */
     reason: string | null;
+    /** STALE_CODE while the server's parse is behind the buffer (a newer model follows); absent otherwise. */
+    code?: string;
     recordTypes: string[];
     /** null when the model is unavailable. */
     nodes: PreviewNode[] | null;

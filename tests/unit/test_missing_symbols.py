@@ -29,6 +29,7 @@ from lsprotocol.types import Diagnostic, Position, Range
 from server.context_store import ContextStore
 from server.file_handler import File_Handler
 from server.missing_symbols import (
+    _declarations,
     declaring_files,
     package_of,
     unknown_symbol,
@@ -74,6 +75,20 @@ def _write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(text)
+
+
+def test_declarations_ignore_string_contents(tmp_path):
+    # Strings with an "n", a brace or an escaped quote must not shift
+    # the quote pairing and hide the declarations around them.
+    path = os.path.join(str(tmp_path), "strings.trlc")
+    _write(
+        path,
+        "package P\n"
+        'Req a {\n    description = "The system on {"\n}\n'
+        'Req b {\n    text = "say \\"no {\\" now"\n}\n'
+        'Req c {\n    text = "x"\n}\n',
+    )
+    assert _declarations(path) == ("P", frozenset({"a", "b", "c"}))
 
 
 def _setup(tmp_path, mode=ParseMode.WORKSPACE):

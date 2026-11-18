@@ -836,7 +836,10 @@ refresh is posted for a document no longer shown. The server refuses edits
 while the last parse is stale (error code `stale`: the controller resends a
 field edit once after the next editable model; if that is stale again, the
 `editRejected` carries `retry` so a Markdown field commits the same text
-again on the next leave) or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
+again on the next leave. A model that is unavailable for the same reason
+carries `code: "stale"`, so the controller keeps waiting on it but gives
+the held edit up on a locked model or a failed refresh instead of blocking
+the edit queue) or while the file has a TRLC `SYS_ERROR` diagnostic other than "required
 component ... is not defined" (TRLC recovers from syntax errors, so such
 files are still in `all_files`; `Vscode_Message_Handler` puts the TRLC kind in
 `Diagnostic.data`). Failing user checks do not lock the file. A locked file

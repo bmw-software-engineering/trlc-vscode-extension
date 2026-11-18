@@ -59,7 +59,15 @@ export function editMatchesVersions(edit: unknown, versionOf: (uri: string) => n
 
 export const SWITCHED_MESSAGE = "TRLC: The preview switched files; the action was cancelled.";
 export const BUSY_MESSAGE = "TRLC: The parser was busy; the edit was not saved. Try again.";
+export const LOCKED_MESSAGE = "TRLC: The file has errors; the edit was not saved. Fix them in the editor.";
 const APPLY_FAILED_MESSAGE = "TRLC: Could not apply edit.";
+
+/**
+ * How the wait of a stale-rejected edit ends: "retry" on an editable model,
+ * "locked" on a model the file's errors lock, "cancelled" if no model of
+ * that document follows (document switch, failed refresh).
+ */
+type WaitOutcome = "retry" | "locked" | "cancelled";
 
 type IdBasedMessage = Exclude<WebviewToHost, { type: "ready" | "reveal" | "setField" | "openFile" }>;
 
@@ -94,8 +102,8 @@ export class PreviewController {
     private seq = 0;
     /** Tail of the edit queue (see enqueue). */
     private editQueue: Promise<void> = Promise.resolve();
-    /** Set while a stale-rejected edit waits for the next editable model. */
-    private modelWaiter: ((retry: boolean) => void) | undefined;
+    /** Set while a stale-rejected edit waits for the next model that is not stale. */
+    private modelWaiter: ((outcome: WaitOutcome) => void) | undefined;
     /** The `openFiles` of the model on screen: the only files "openFile" may open. */
     private openable = new Set<string>();
 
@@ -114,7 +122,7 @@ export class PreviewController {
         }
         this.currentUri = uri;
         this.seq++;
-        this.releaseWaiter(false);
+        this.releaseWaiter("cancelled");
         await this.refresh();
     }
 
@@ -130,6 +138,7 @@ export class PreviewController {
                 return;
             }
             if (model === null || model === undefined) {
+                this.releaseWaiter("cancelled");
                 this.post({ type: "error", message: "TRLC: No preview data from the language server." });
                 return;
             }
@@ -137,7 +146,11 @@ export class PreviewController {
             this.post({ type: "model", model });
             if (model.editable) {
                 // The server has caught up with the buffer: retry a stale edit.
-                this.releaseWaiter(true);
+                this.releaseWaiter("retry");
+            } else if (model.code !== STALE_CODE) {
+                // Caught up, but the file is locked: a held edit must not
+                // block the queue and be applied whenever the lock ends.
+                this.releaseWaiter("locked");
             }
         });
     }
@@ -207,7 +220,7 @@ export class PreviewController {
     /**
      * A field edit. A stale rejection (the server has not parsed the latest
      * buffer yet, typically the previous edit) is held and resent once on
-     * the next editable model. Refusals are reported to the webview
+     * the next editable model; a locked model gives it up. Refusals are reported to the webview
      * (editRejected) and refreshed only while its document is still shown.
      */
     private async runSetField(msg: Extract<WebviewToHost, { type: "setField" }>): Promise<void> {
@@ -224,7 +237,12 @@ export class PreviewController {
             const params = { uri, record, field, value };
             let result = await this.request(PREVIEW_SET_FIELD_METHOD, params);
             if (isStale(result)) {
-                if (!shown() || !(await this.waitForEditableModel())) {
+                const outcome = shown() ? await this.waitForModel() : "cancelled";
+                if (outcome === "locked") {
+                    await rejected(LOCKED_MESSAGE, false);
+                    return;
+                }
+                if (outcome === "cancelled") {
                     // No model of that document to wait for any more.
                     this.deps.showError(BUSY_MESSAGE);
                     return;
@@ -291,18 +309,18 @@ export class PreviewController {
         }
     }
 
-    /** Resolves true on the next editable model, false if the document changes first. */
-    private waitForEditableModel(): Promise<boolean> {
-        this.releaseWaiter(false);
+    /** Resolves on the next model that is not stale, or when none will follow (see WaitOutcome). */
+    private waitForModel(): Promise<WaitOutcome> {
+        this.releaseWaiter("cancelled");
         return new Promise((resolve) => {
             this.modelWaiter = resolve;
         });
     }
 
-    private releaseWaiter(retry: boolean): void {
+    private releaseWaiter(outcome: WaitOutcome): void {
         const waiter = this.modelWaiter;
         this.modelWaiter = undefined;
-        waiter?.(retry);
+        waiter?.(outcome);
     }
 
     private async guarded(seq: number, fn: () => Promise<void>): Promise<void> {
@@ -310,6 +328,7 @@ export class PreviewController {
             await fn();
         } catch (e) {
             if (seq === this.seq) {
+                this.releaseWaiter("cancelled");
                 this.postError(e);
             }
         }
