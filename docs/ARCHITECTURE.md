@@ -653,7 +653,9 @@ one warning naming the bad patterns. `bazel.ruleClasses` entries get the same
 treatment: each is validated against a Starlark-identifier pattern (they are
 interpolated unescaped into a `kind()` query — see [Bazel](#bazel)), and
 anything failing is dropped into `invalid_rule_classes` and warned the same
-way.
+way. A `preview.markdownComponents` value that is not a list of strings
+falls back to the default as a whole; what made it unusable is collected into
+`invalid_markdown_components` and warned likewise.
 
 ## ServerProtocol
 

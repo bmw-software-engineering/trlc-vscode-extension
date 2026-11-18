@@ -396,6 +396,31 @@ class TestDidOpen:
         warnings = [m for m in server._msgs if "[unterminated" in m.message]
         assert len(warnings) == 1
 
+    def test_invalid_markdown_components_warn_once(self, server, handlers):
+        """A preview.markdownComponents value that is not a list of names
+        falls back to the default; one warning names what was ignored,
+        since the preview would otherwise silently not render Markdown."""
+        # Given: a client config with a string instead of a list
+        server._configuration_response = [
+            {"preview": {"markdownComponents": "rationale"}}
+        ]
+        uri = f"{FOLDER_URI}/a.rsl"
+        server.workspace = _make_workspace({uri: ""})
+
+        # When: a file in that folder is opened
+        _run(handlers["did_open"](server, _open_params(uri)))
+
+        # Then: the default applies, and exactly one warning is shown
+        applied = server.store.get_config_for_uri(FOLDER_URI)
+        assert applied.preview_markdown_components == ("description",)
+        warnings = [
+            m
+            for m in server._msgs
+            if "preview.markdownComponents" in m.message
+            and "'rationale'" in m.message
+        ]
+        assert len(warnings) == 1
+
 
 # pylint: disable-next=too-few-public-methods  # minimal data-holder stand-in; __init__ + window_log_message is the only interface needed
 class _FakeLsForLogging:

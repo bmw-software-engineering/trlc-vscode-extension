@@ -125,6 +125,11 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
     #: String component names the preview renders and edits as GitHub
     #: Flavored Markdown (see server.preview_model).
     preview_markdown_components: Tuple[str, ...] = ("description",)
+    #: ``repr`` of what made preview.markdownComponents from
+    #: :meth:`from_dict` unusable (a non-list value, or the non-string
+    #: entries of a list); the default then applies. Kept alongside, same
+    #: rationale as ``invalid_patterns``.
+    invalid_markdown_components: Tuple[str, ...] = ()
     log_level: str = "warning"
 
     @classmethod
@@ -185,9 +190,15 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
         )
         preview = d.get("preview", {}) or {}
         raw_markdown = preview.get("markdownComponents")
-        if isinstance(raw_markdown, list) and all(
-            isinstance(m, str) for m in raw_markdown
-        ):
+        if raw_markdown is None:
+            invalid_markdown: Tuple[str, ...] = ()
+        elif isinstance(raw_markdown, list):
+            invalid_markdown = tuple(
+                repr(m) for m in raw_markdown if not isinstance(m, str)
+            )
+        else:
+            invalid_markdown = (repr(raw_markdown),)
+        if isinstance(raw_markdown, list) and not invalid_markdown:
             preview_markdown_components = tuple(raw_markdown)
         else:
             preview_markdown_components = cls.preview_markdown_components
@@ -238,5 +249,6 @@ class ServerConfig:  # pylint: disable=too-many-instance-attributes  # one field
             bazel_query_timeout_seconds=bazel_query_timeout,
             hover_description_component=hover_description_component,
             preview_markdown_components=preview_markdown_components,
+            invalid_markdown_components=invalid_markdown,
             log_level=log_level,
         )
