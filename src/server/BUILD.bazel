@@ -70,12 +70,12 @@ py_wheel(
     requires = [
         "lsprotocol>=2025.0.0",
         "pygls==2.1.1",
-        "trlc>=3.0.0",
+        "trlc>=3.1.3",
     ],
     # Package layout is src/server/*.py on disk, but the importable package
     # is "server" (see pyproject.toml's [tool.setuptools.packages.find]) -
     # strip the "src/" prefix so the wheel matches that, not "src/server/*".
     strip_path_prefixes = ["src/"],
-    version = "4.0.0",
+    version = "4.0.1",
     deps = [":server"],
 )
